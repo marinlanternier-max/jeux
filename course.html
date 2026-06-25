@@ -115,6 +115,33 @@ function isOnTrack(x, y) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  SPEED ZONES  (accelerateurs = 'boost', ralentisseurs = 'slow')
+// ════════════════════════════════════════════════════════════
+const ZONES = [
+    // accelerateurs (flèches vertes) — sur les longues lignes droites
+    {type:'boost', x:RX,   y:460,  r:28},
+    {type:'boost', x:RX,   y:560,  r:28},
+    {type:'boost', x:500,  y:BY,   r:28},
+    {type:'boost', x:350,  y:BY,   r:28},
+    {type:'boost', x:BX,   y:350,  r:28},
+    {type:'boost', x:600,  y:TY,   r:28},
+    // ralentisseurs (tache huile marron) — avant les virages et chicane
+    {type:'slow',  x:RX,   y:615,  r:32},   // avant virage bas-droit
+    {type:'slow',  x:220,  y:BY,   r:32},   // avant virage bas-gauche
+    {type:'slow',  x:BX,   y:195,  r:32},   // avant virage haut-gauche
+    {type:'slow',  x:500,  y:TY,   r:30},   // chicane
+    {type:'slow',  x:860,  y:TY,   r:30},   // avant virage haut-droit
+];
+
+function checkZone(car) {
+    for (const z of ZONES) {
+        const dx=car.x-z.x, dy=car.y-z.y;
+        if (dx*dx+dy*dy < z.r*z.r) return z.type;
+    }
+    return null;
+}
+
+// ════════════════════════════════════════════════════════════
 //  KEYS
 // ════════════════════════════════════════════════════════════
 const keys = {};
@@ -173,8 +200,13 @@ class Car {
         else if (isOnTrack(nx,this.y)) {this.x=nx;this.speed*=0.65;}
         else if (isOnTrack(this.x,ny)) {this.y=ny;this.speed*=0.65;}
         else                           {this.speed*=-0.25;}
+        // zone effects
+        const zone=checkZone(this);
+        if (zone==='boost') { this.speed=Math.min(this.speed*1.08+0.18, 8.5); this.zoneEffect='boost'; }
+        else if (zone==='slow') { this.speed*=0.88; this.zoneEffect='slow'; }
+        else { this.zoneEffect=null; }
         // trail
-        if (boosting) {
+        if (boosting || zone==='boost') {
             this.trail.push({x:this.x,y:this.y,life:1,
                 color:TRAIL_COLORS[Math.floor(performance.now()/60)%TRAIL_COLORS.length]});
         }
@@ -198,6 +230,18 @@ class Car {
         ctx.globalAlpha=1;
     }
     draw() {
+        // zone flash
+        if (this.zoneEffect==='boost') {
+            ctx.save(); ctx.translate(this.x,this.y);
+            ctx.strokeStyle='rgba(0,255,100,0.7)'; ctx.lineWidth=3;
+            ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2); ctx.stroke();
+            ctx.restore();
+        } else if (this.zoneEffect==='slow') {
+            ctx.save(); ctx.translate(this.x,this.y);
+            ctx.strokeStyle='rgba(180,80,0,0.75)'; ctx.lineWidth=3;
+            ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2); ctx.stroke();
+            ctx.restore();
+        }
         // boost glow ring
         if (this.boostTimer>0) {
             ctx.save(); ctx.translate(this.x,this.y);
@@ -586,6 +630,42 @@ trackCvs.width=W; trackCvs.height=H;
     tc.translate(FIN_X2+14, FIN_Y+2); tc.rotate(Math.PI/2);
     tc.fillStyle='white'; tc.font='bold 11px Arial'; tc.textAlign='center';
     tc.fillText('DÉPART / ARRIVÉE',0,4); tc.restore();
+
+    // 7. Speed zones painted on track
+    for (const z of ZONES) {
+        tc.save(); tc.translate(z.x, z.y);
+        if (z.type==='boost') {
+            // green glowing pad with arrows
+            const g=tc.createRadialGradient(0,0,2,0,0,z.r);
+            g.addColorStop(0,'rgba(0,255,120,0.65)');
+            g.addColorStop(1,'rgba(0,180,60,0.0)');
+            tc.fillStyle=g; tc.beginPath(); tc.arc(0,0,z.r,0,Math.PI*2); tc.fill();
+            // double arrow up
+            tc.fillStyle='rgba(255,255,255,0.85)'; tc.textAlign='center'; tc.textBaseline='middle';
+            tc.font=`bold ${z.r*0.9|0}px Arial`;
+            tc.fillText('▲',0,2);
+        } else {
+            // oil slick — dark brown splat
+            const g=tc.createRadialGradient(0,0,2,0,0,z.r);
+            g.addColorStop(0,'rgba(90,50,10,0.80)');
+            g.addColorStop(0.6,'rgba(60,30,5,0.55)');
+            g.addColorStop(1,'rgba(40,20,0,0.0)');
+            tc.fillStyle=g;
+            // irregular splat shape
+            tc.beginPath();
+            for(let i=0;i<12;i++){
+                const a=(i/12)*Math.PI*2;
+                const rr=z.r*(0.7+0.3*Math.sin(i*2.3+1));
+                i===0?tc.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):tc.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+            }
+            tc.closePath(); tc.fill();
+            // warning icon
+            tc.fillStyle='rgba(255,180,0,0.9)'; tc.textAlign='center'; tc.textBaseline='middle';
+            tc.font=`bold ${z.r*0.75|0}px Arial`;
+            tc.fillText('⚠',0,2);
+        }
+        tc.restore();
+    }
 })();
 
 function drawTrack() { ctx.drawImage(trackCvs,0,0); }
