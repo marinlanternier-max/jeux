@@ -224,9 +224,10 @@ class BotCar extends Car {
 
         const nx=this.x+Math.sin(this.angle)*this.speed;
         const ny=this.y-Math.cos(this.angle)*this.speed;
+        const WP=D.wallPenalty;
         if      (isOnTrack(nx,ny))     {this.x=nx;this.y=ny;}
-        else if (isOnTrack(nx,this.y)) {this.x=nx;this.speed*=0.65;}
-        else if (isOnTrack(this.x,ny)) {this.y=ny;this.speed*=0.65;}
+        else if (isOnTrack(nx,this.y)) {this.x=nx;this.speed*=WP;}
+        else if (isOnTrack(this.x,ny)) {this.y=ny;this.speed*=WP;}
         else                           {this.speed*=-0.3;}
 
         // Unstuck logic
@@ -804,9 +805,9 @@ const DIFF_BTNS=[
 let playerCount=2;
 let botDifficulty='normal'; // 'facile' | 'normal' | 'difficile'
 const DIFF_PRESETS={
-    facile:   {maxSpeed:2.8, accel:0.12, turn:0.045, brakeAngle:0.40, wpRadius:55},
-    normal:   {maxSpeed:5.0, accel:0.22, turn:0.068, brakeAngle:0.65, wpRadius:38},
-    difficile:{maxSpeed:9.2, accel:0.42, turn:0.095, brakeAngle:1.10, wpRadius:22},
+    facile:   {maxSpeed:2.8,  accel:0.12, turn:0.045, brakeAngle:0.40, wpRadius:55, wallPenalty:0.55},
+    normal:   {maxSpeed:5.0,  accel:0.22, turn:0.068, brakeAngle:0.65, wpRadius:38, wallPenalty:0.65},
+    difficile:{maxSpeed:13.5, accel:0.70, turn:0.115, brakeAngle:1.55, wpRadius:16, wallPenalty:0.88},
 };
 
 canvas.addEventListener('click',e=>{
