@@ -994,12 +994,27 @@ let goTimer=0,goShowing=false,gameOverTimer=0,showRestart=false;
 
 function activeBots(){ return [bot1,bot2].slice(0,playerCount-2); }
 
+function nearestWpAhead(car){
+    const wps=currentCircuit.botWaypoints;
+    if(!wps||!wps.length) return 0;
+    let best=0, bestDist=Infinity;
+    for(let i=0;i<wps.length;i++){
+        const dx=wps[i].x-car.x, dy=wps[i].y-car.y;
+        // Only consider waypoints roughly in front (dot product with heading > 0)
+        const inFront = dx*Math.sin(car.angle) + dy*(-Math.cos(car.angle));
+        if(inFront < 0) continue;
+        const d=dx*dx+dy*dy;
+        if(d<bestDist){bestDist=d;best=i;}
+    }
+    return best;
+}
+
 function startRound(){
     currentCircuit = circuits[(round-1)%2];
     blueCar.setStart(currentCircuit.startBlue); blueCar.reset();
     redCar.setStart(currentCircuit.startRed);   redCar.reset();
-    if(playerCount>=3){ bot1.setStart(currentCircuit.startBot1); bot1.reset(); bot1.wpIdx=0; }
-    if(playerCount>=4){ bot2.setStart(currentCircuit.startBot2); bot2.reset(); bot2.wpIdx=0; }
+    if(playerCount>=3){ bot1.setStart(currentCircuit.startBot1); bot1.reset(); bot1.wpIdx=nearestWpAhead(bot1); }
+    if(playerCount>=4){ bot2.setStart(currentCircuit.startBot2); bot2.reset(); bot2.wpIdx=nearestWpAhead(bot2); }
     roundWinner=null; resetZones();
     if(gameState!=='menu') gameState='countdown';
     countdown=3; cdTimer=0; goShowing=false; goTimer=0;
