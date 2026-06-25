@@ -148,7 +148,7 @@ class Car {
         this.x=this.startPos.x; this.y=this.startPos.y;
         this.angle=this.startPos.angle; this.speed=0;
         this.prevX=this.x; this.prevY=this.y; this.finished=false;
-        this.boostTimer=0; this.boostFuel=2.5; this.trail=[];
+        this.boostTimer=0; this.boostFuel=3; this.trail=[];
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
@@ -480,13 +480,96 @@ trackCvs.width=W; trackCvs.height=H;
     // stamp onto main track canvas
     tc.drawImage(tmp,0,0);
 
-    // 5. Infield decorations (on top so text sits in the grass)
+    // 5. Infield decorations
     tc.textAlign='center';
-    tc.font='bold 30px Arial Black'; tc.fillStyle='rgba(255,255,255,0.09)';
-    tc.fillText('GRAND PRIX',510,380);
-    tc.font='16px Arial'; tc.fillStyle='rgba(255,255,255,0.07)';
-    tc.fillText('★  COURSE DE VOITURES  ★',510,410);
+    tc.font='bold 48px Arial Black'; tc.fillStyle='rgba(255,255,255,0.07)';
+    tc.fillText('GRAND PRIX',510,370);
+    tc.font='15px Arial'; tc.fillStyle='rgba(255,255,255,0.06)';
+    tc.fillText('★  COURSE DE VOITURES  ★',510,400);
     tc.textAlign='left';
+
+    // ── Sponsor banners on infield grass ──────────────────────
+    function sponsorBanner(x,y,w,h,txt,bg,fg,angle=0){
+        tc.save(); tc.translate(x,y); if(angle) tc.rotate(angle);
+        tc.fillStyle=bg; tc.beginPath(); tc.roundRect(-w/2,-h/2,w,h,4); tc.fill();
+        tc.strokeStyle='rgba(255,255,255,0.3)'; tc.lineWidth=1.5;
+        tc.beginPath(); tc.roundRect(-w/2,-h/2,w,h,4); tc.stroke();
+        tc.fillStyle=fg; tc.font=`bold ${h*0.52|0}px Arial Black`;
+        tc.textAlign='center'; tc.textBaseline='middle';
+        tc.fillText(txt,0,0); tc.restore();
+    }
+    // near top chicane infield
+    sponsorBanner(520, 165, 120, 22, '⚡ TURBO OIL', '#cc0000', '#fff');
+    // left straight infield
+    sponsorBanner(310, 430,  110, 20, 'SPEED FUEL',  '#ff8800', '#000', -Math.PI/2);
+    // bottom straight infield
+    sponsorBanner(520, 660,  130, 22, '🏁 RACE STAR', '#1a1acc','#fff');
+    // near bottom-right corner
+    sponsorBanner(750, 640,  110, 20, 'MAX GRIP',    '#118822','#fff');
+
+    // ── Coloured rumble strips on corner apexes ───────────────
+    function rumbleStrip(x,y,r,startA,endA,col1,col2){
+        const steps=18, dA=(endA-startA)/steps;
+        for(let i=0;i<steps;i++){
+            const a=startA+i*dA;
+            tc.beginPath();
+            tc.moveTo(x,y);
+            tc.arc(x,y,r,a,a+dA);
+            tc.closePath();
+            tc.fillStyle=i%2===0?col1:col2;
+            tc.globalAlpha=0.55; tc.fill();
+        }
+        tc.globalAlpha=1;
+    }
+    // bottom-right corner apex (road inner edge ≈ radius 45 from corner centre ~(960,700))
+    rumbleStrip(940, BY, 48, -Math.PI*0.15, Math.PI*0.55, '#ee2222','#fff');
+    // bottom-left corner apex (~BX,BY)
+    rumbleStrip(BX,  BY, 48,  Math.PI*0.45, Math.PI,      '#ee2222','#fff');
+    // top-left corner apex (~BX,TY)
+    rumbleStrip(BX,  TY, 48, -Math.PI,     -Math.PI*0.45, '#ee2222','#fff');
+
+    // ── Tyre-mark skid patches at heavy braking zones ─────────
+    function skid(x,y,len,w,angle,alpha=0.18){
+        tc.save(); tc.translate(x,y); tc.rotate(angle);
+        tc.fillStyle=`rgba(0,0,0,${alpha})`;
+        tc.beginPath(); tc.roundRect(-w/2,-len/2,w,len,2); tc.fill();
+        tc.restore();
+    }
+    // braking into bottom-right corner
+    skid(RX-10, 580, 55, 6, 0.08);
+    skid(RX+12, 600, 45, 5, 0.05);
+    // braking into bottom-left corner
+    skid(190, BY-10, 40, 5, Math.PI/2+0.1);
+    // braking into top-left corner after left straight
+    skid(BX+10, 220, 45, 5, 0.05);
+
+    // ── Small pit-lane marking (right side above finish) ─────
+    tc.save();
+    tc.strokeStyle='rgba(255,220,0,0.55)'; tc.lineWidth=3;
+    tc.setLineDash([8,8]);
+    tc.beginPath(); tc.moveTo(RX+HALF_W-18, 140); tc.lineTo(RX+HALF_W-18, FIN_Y-20);
+    tc.stroke(); tc.setLineDash([]); tc.restore();
+    tc.save();
+    tc.translate(RX+HALF_W-10, 190); tc.rotate(Math.PI/2);
+    tc.fillStyle='rgba(255,220,0,0.7)'; tc.font='bold 9px Arial';
+    tc.textAlign='center'; tc.fillText('PIT LANE', 0, 0); tc.restore();
+
+    // ── Arrow direction markers on road ───────────────────────
+    function arrow(x,y,angle){
+        tc.save(); tc.translate(x,y); tc.rotate(angle);
+        tc.fillStyle='rgba(255,255,255,0.18)';
+        tc.beginPath();
+        tc.moveTo(0,-10); tc.lineTo(6,4); tc.lineTo(0,1); tc.lineTo(-6,4);
+        tc.closePath(); tc.fill(); tc.restore();
+    }
+    // down the main straight
+    arrow(RX, 350, 0); arrow(RX, 420, 0); arrow(RX, 500, 0);
+    // along bottom straight (westward)
+    arrow(700, BY, -Math.PI/2); arrow(500, BY, -Math.PI/2); arrow(300, BY, -Math.PI/2);
+    // up the left straight
+    arrow(BX, 500, Math.PI); arrow(BX, 380, Math.PI); arrow(BX, 280, Math.PI);
+    // along top (eastward)
+    arrow(300, TY, Math.PI/2); arrow(450, TY, Math.PI/2); arrow(700, TY, Math.PI/2); arrow(850, TY, Math.PI/2);
 
     // 6. Finish / start line — horizontal checkered band across the main straight
     //    centred on FIN_Y, 3 rows of 10 px squares spanning FIN_X1→FIN_X2
@@ -522,7 +605,7 @@ function drawHUD(){
     ctx.fillText(scores.blue+' pt'+(scores.blue!==1?'s':''),22,60);
     // boost bar blue
     ctx.fillStyle='#223'; ctx.fillRect(18,66,160,7);
-    const bf=blueCar.boostFuel/2.5;
+    const bf=blueCar.boostFuel/3;
     const bg=ctx.createLinearGradient(18,0,178,0);
     bg.addColorStop(0,'#ff0'); bg.addColorStop(0.5,'#0f0'); bg.addColorStop(1,'#0cf');
     ctx.fillStyle=bg; ctx.fillRect(18,66,160*bf,7);
@@ -536,7 +619,7 @@ function drawHUD(){
     ctx.fillText(scores.red+' pt'+(scores.red!==1?'s':''),W-22,60);
     // boost bar red
     ctx.fillStyle='#322'; ctx.fillRect(W-178,66,160,7);
-    const rf=redCar.boostFuel/2.5;
+    const rf=redCar.boostFuel/3;
     const rg=ctx.createLinearGradient(W-178,0,W-18,0);
     rg.addColorStop(0,'#ff0'); rg.addColorStop(0.5,'#0f0'); rg.addColorStop(1,'#0cf');
     ctx.fillStyle=rg; ctx.fillRect(W-178,66,160*rf,7);
