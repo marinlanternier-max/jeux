@@ -133,10 +133,14 @@ const ZONES = [
     {type:'slow',  x:860,  y:TY,   r:30},   // avant virage haut-droit
 ];
 
+function resetZones() { ZONES.forEach(z=>z.active=true); }
+resetZones();
+
 function checkZone(car) {
     for (const z of ZONES) {
+        if (!z.active) continue;
         const dx=car.x-z.x, dy=car.y-z.y;
-        if (dx*dx+dy*dy < z.r*z.r) return z.type;
+        if (dx*dx+dy*dy < z.r*z.r) { z.active=false; return z.type; }
     }
     return null;
 }
@@ -176,6 +180,7 @@ class Car {
         this.angle=this.startPos.angle; this.speed=0;
         this.prevX=this.x; this.prevY=this.y; this.finished=false;
         this.boostTimer=0; this.boostFuel=3; this.trail=[];
+        this.zoneBoost=0; this.zoneSlow=0; this.zoneEffect=null;
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
@@ -202,8 +207,10 @@ class Car {
         else                           {this.speed*=-0.25;}
         // zone effects
         const zone=checkZone(this);
-        if (zone==='boost') { this.speed=Math.min(this.speed*1.08+0.18, 8.5); this.zoneEffect='boost'; }
-        else if (zone==='slow') { this.speed*=0.88; this.zoneEffect='slow'; }
+        if (zone==='boost') this.zoneBoost=2.5;
+        if (zone==='slow')  this.zoneSlow=2.2;
+        if (this.zoneBoost>0) { this.zoneBoost-=1/60; this.speed=Math.min(this.speed*1.06+0.2,8.5); this.zoneEffect='boost'; }
+        else if (this.zoneSlow>0) { this.zoneSlow-=1/60; this.speed*=0.88; this.zoneEffect='slow'; }
         else { this.zoneEffect=null; }
         // trail
         if (boosting || zone==='boost') {
@@ -631,42 +638,40 @@ trackCvs.width=W; trackCvs.height=H;
     tc.fillStyle='white'; tc.font='bold 11px Arial'; tc.textAlign='center';
     tc.fillText('DÉPART / ARRIVÉE',0,4); tc.restore();
 
-    // 7. Speed zones painted on track
-    for (const z of ZONES) {
-        tc.save(); tc.translate(z.x, z.y);
-        if (z.type==='boost') {
-            // green glowing pad with arrows
-            const g=tc.createRadialGradient(0,0,2,0,0,z.r);
-            g.addColorStop(0,'rgba(0,255,120,0.65)');
-            g.addColorStop(1,'rgba(0,180,60,0.0)');
-            tc.fillStyle=g; tc.beginPath(); tc.arc(0,0,z.r,0,Math.PI*2); tc.fill();
-            // double arrow up
-            tc.fillStyle='rgba(255,255,255,0.85)'; tc.textAlign='center'; tc.textBaseline='middle';
-            tc.font=`bold ${z.r*0.9|0}px Arial`;
-            tc.fillText('▲',0,2);
-        } else {
-            // oil slick — dark brown splat
-            const g=tc.createRadialGradient(0,0,2,0,0,z.r);
-            g.addColorStop(0,'rgba(90,50,10,0.80)');
-            g.addColorStop(0.6,'rgba(60,30,5,0.55)');
-            g.addColorStop(1,'rgba(40,20,0,0.0)');
-            tc.fillStyle=g;
-            // irregular splat shape
-            tc.beginPath();
-            for(let i=0;i<12;i++){
-                const a=(i/12)*Math.PI*2;
-                const rr=z.r*(0.7+0.3*Math.sin(i*2.3+1));
-                i===0?tc.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):tc.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
-            }
-            tc.closePath(); tc.fill();
-            // warning icon
-            tc.fillStyle='rgba(255,180,0,0.9)'; tc.textAlign='center'; tc.textBaseline='middle';
-            tc.font=`bold ${z.r*0.75|0}px Arial`;
-            tc.fillText('⚠',0,2);
-        }
-        tc.restore();
-    }
 })();
+
+function drawZones() {
+    for (const z of ZONES) {
+        if (!z.active) continue;
+        ctx.save(); ctx.translate(z.x, z.y);
+        if (z.type==='boost') {
+            const pulse=0.55+0.2*Math.sin(performance.now()/200);
+            const g=ctx.createRadialGradient(0,0,2,0,0,z.r);
+            g.addColorStop(0,`rgba(0,255,120,${pulse})`);
+            g.addColorStop(1,'rgba(0,180,60,0.0)');
+            ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,z.r,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.font=`bold ${z.r*0.9|0}px Arial`;
+            ctx.fillText('▲',0,2);
+        } else {
+            const g=ctx.createRadialGradient(0,0,2,0,0,z.r);
+            g.addColorStop(0,'rgba(90,50,10,0.85)');
+            g.addColorStop(0.6,'rgba(60,30,5,0.6)');
+            g.addColorStop(1,'rgba(40,20,0,0.0)');
+            ctx.fillStyle=g;
+            ctx.beginPath();
+            for(let i=0;i<12;i++){
+                const a=(i/12)*Math.PI*2, rr=z.r*(0.7+0.3*Math.sin(i*2.3+1));
+                i===0?ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+            }
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle='rgba(255,180,0,0.95)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.font=`bold ${z.r*0.75|0}px Arial`;
+            ctx.fillText('⚠',0,2);
+        }
+        ctx.restore();
+    }
+}
 
 function drawTrack() { ctx.drawImage(trackCvs,0,0); }
 
@@ -865,8 +870,21 @@ function drawMenu(dt){
     ctx.fillStyle='#000d1a'; ctx.font='bold 26px Arial Black';
     ctx.fillText('▶  COMMENCER',W/2,MBTN.y+40);
 
+    // online badge
+    const bw=180,bh=30,bx=W-bw-12,by=12;
+    ctx.fillStyle='rgba(0,20,40,0.82)';
+    ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,8); ctx.fill();
+    ctx.strokeStyle='rgba(0,200,100,0.6)'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,8); ctx.stroke();
+    // pulsing green dot
+    const dp=0.6+0.4*Math.sin(menuTime*4);
+    ctx.fillStyle=`rgba(0,255,100,${dp})`; ctx.beginPath(); ctx.arc(bx+16,by+15,5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(0,255,100,0.25)'; ctx.beginPath(); ctx.arc(bx+16,by+15,9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(200,255,220,0.9)'; ctx.font='bold 12px Arial'; ctx.textAlign='left';
+    ctx.fillText('5 000 joueurs en ligne',bx+28,by+19);
+
     // small footer
-    ctx.font='11px Arial'; ctx.fillStyle='rgba(100,120,160,0.6)';
+    ctx.font='11px Arial'; ctx.fillStyle='rgba(100,120,160,0.6)'; ctx.textAlign='center';
     ctx.fillText('10 manches  ·  Boost double-appui  ·  Bonne course !',W/2,H-18);
 
     ctx.shadowBlur=0; ctx.restore();
@@ -889,7 +907,7 @@ let countdown=3,cdTimer=0,roundWinner=null,reTimer=0;
 let goTimer=0,goShowing=false,gameOverTimer=0,showRestart=false;
 
 function startRound(){
-    blueCar.reset(); redCar.reset(); roundWinner=null;
+    blueCar.reset(); redCar.reset(); roundWinner=null; resetZones();
     if(gameState!=='menu') gameState='countdown';
     countdown=3; cdTimer=0; goShowing=false; goTimer=0;
 }
@@ -926,6 +944,7 @@ function loop(ts){
         if(bF&&!roundWinner){roundWinner='blue';scores.blue++;}
         if(rF&&!roundWinner){roundWinner='red'; scores.red++; }
         if(roundWinner){gameState='roundEnd';reTimer=0;}
+        drawZones();
         blueCar.drawTrail(); redCar.drawTrail();
         blueCar.draw(); redCar.draw(); drawHUD();
     } else if (gameState==='roundEnd'){
