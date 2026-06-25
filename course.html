@@ -148,13 +148,13 @@ class Car {
         this.x=this.startPos.x; this.y=this.startPos.y;
         this.angle=this.startPos.angle; this.speed=0;
         this.prevX=this.x; this.prevY=this.y; this.finished=false;
-        this.boostTimer=0; this.trail=[];
+        this.boostTimer=0; this.boostFuel=5; this.trail=[];
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
         // consume double-press boost trigger
-        if (boostKeys[this.controls.up]) { this.boostTimer=1.8; boostKeys[this.controls.up]=false; }
-        if (this.boostTimer>0) this.boostTimer-=1/60;
+        if (boostKeys[this.controls.up]) { if(this.boostFuel>0) this.boostTimer=Math.min(this.boostFuel,1.8); boostKeys[this.controls.up]=false; }
+        if (this.boostTimer>0) { this.boostTimer-=1/60; this.boostFuel=Math.max(0,this.boostFuel-1/60); }
         const boosting=this.boostTimer>0;
         const MAX=boosting?9.5:5.2, ACCEL=boosting?0.38:0.22, FRIC=0.91, TURN=0.068;
         if      (keys[this.controls.up])   this.speed+=ACCEL;
@@ -439,17 +439,33 @@ function rBox(x,y,w,h,r,fill,a=0.7){
     ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); ctx.globalAlpha=1;
 }
 function drawHUD(){
-    rBox(8,8,195,62,10,'#001133');
+    rBox(8,8,195,75,10,'#001133');
     ctx.fillStyle='#4488ff'; ctx.font='bold 13px Arial'; ctx.textAlign='left';
     ctx.fillText('🔵  '+blueCar.label,18,28);
     ctx.font='bold 32px Arial Black'; ctx.fillStyle='#fff';
     ctx.fillText(scores.blue+' pt'+(scores.blue!==1?'s':''),22,60);
+    // boost bar blue
+    ctx.fillStyle='#223'; ctx.fillRect(18,66,160,7);
+    const bf=blueCar.boostFuel/5;
+    const bg=ctx.createLinearGradient(18,0,178,0);
+    bg.addColorStop(0,'#ff0'); bg.addColorStop(0.5,'#0f0'); bg.addColorStop(1,'#0cf');
+    ctx.fillStyle=bg; ctx.fillRect(18,66,160*bf,7);
+    ctx.strokeStyle='#446'; ctx.lineWidth=1; ctx.strokeRect(18,66,160,7);
+    ctx.font='9px Arial'; ctx.fillStyle='#aaa'; ctx.fillText('BOOST',20,63);
 
-    rBox(W-203,8,195,62,10,'#1a0000');
+    rBox(W-203,8,195,75,10,'#1a0000');
     ctx.fillStyle='#ff4444'; ctx.font='bold 13px Arial'; ctx.textAlign='right';
     ctx.fillText(redCar.label+'  🔴',W-18,28);
     ctx.font='bold 32px Arial Black'; ctx.fillStyle='#fff'; ctx.textAlign='right';
     ctx.fillText(scores.red+' pt'+(scores.red!==1?'s':''),W-22,60);
+    // boost bar red
+    ctx.fillStyle='#322'; ctx.fillRect(W-178,66,160,7);
+    const rf=redCar.boostFuel/5;
+    const rg=ctx.createLinearGradient(W-178,0,W-18,0);
+    rg.addColorStop(0,'#ff0'); rg.addColorStop(0.5,'#0f0'); rg.addColorStop(1,'#0cf');
+    ctx.fillStyle=rg; ctx.fillRect(W-178,66,160*rf,7);
+    ctx.strokeStyle='#644'; ctx.lineWidth=1; ctx.strokeRect(W-178,66,160,7);
+    ctx.font='9px Arial'; ctx.fillStyle='#aaa'; ctx.textAlign='right'; ctx.fillText('BOOST',W-20,63);
     ctx.textAlign='left';
 
     rBox(W/2-90,8,180,42,10,'#0a0a22');
