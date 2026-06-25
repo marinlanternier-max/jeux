@@ -7,49 +7,72 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     background: #0a0a1a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
     min-height: 100vh;
     font-family: 'Arial Black', Arial, sans-serif;
     overflow: hidden;
 }
 canvas {
-    border: 3px solid #333;
-    border-radius: 8px;
-    box-shadow: 0 0 40px rgba(80, 120, 255, 0.25);
-    display: block;
-    max-width: 100vw;
-    max-height: 100vh;
+    border: 3px solid #333; border-radius: 8px;
+    box-shadow: 0 0 40px rgba(80,120,255,0.25);
+    display: block; max-width: 100vw; max-height: 100vh;
 }
 </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="1100" height="740"></canvas>
+<canvas id="gameCanvas" width="1200" height="800"></canvas>
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
-// ── Track geometry ─────────────────────────────────────────────────────────
-const CX = 550, CY = 370;
-const OUTER = { rx: 460, ry: 278 };
-const INNER = { rx: 270, ry: 160 };
+// ── Circuit path (F1-style, non-round) ────────────────────────────────────
+// Centerline goes clockwise.  Start = top of right main straight.
+const TRACK_W = 88; // road width in pixels
 
-const FIN_X  = 550;
-const FIN_Y1 = CY + INNER.ry + 6;   // 536
-const FIN_Y2 = CY + OUTER.ry - 6;   // 642
+const circuitPath = new Path2D();
+circuitPath.moveTo(960, 120);        // A – top of right main straight
+circuitPath.lineTo(960, 640);        // B – down right straight  (520 px)
+circuitPath.bezierCurveTo(960,720, 920,740, 850,740);   // corner 1: S→W
+circuitPath.lineTo(300, 740);        // C – bottom straight       (550 px)
+circuitPath.bezierCurveTo(200,740, 180,700, 180,620);   // corner 2: W→N (hairpin feel)
+circuitPath.lineTo(180, 190);        // D – left straight         (430 px)
+circuitPath.bezierCurveTo(180,105, 230,80, 320,80);     // corner 3: N→E
+circuitPath.lineTo(510, 80);         // E – first top section     (190 px)
+// chicane (dip south then back north)
+circuitPath.bezierCurveTo(545,165, 590,165, 625,80);    // chicane
+circuitPath.lineTo(800, 80);         // F – after chicane          (175 px)
+circuitPath.bezierCurveTo(920,80, 960,110, 960,120);    // corner 4: E→S (sweep)
+circuitPath.closePath();
 
-const START_BLUE = { x: 578, y: FIN_Y1 + 32, angle: Math.PI / 2 };
-const START_RED  = { x: 578, y: FIN_Y1 + 72, angle: Math.PI / 2 };
+// ── Track mask (pixel-based collision) ─────────────────────────────────────
+const maskCanvas = document.createElement('canvas');
+maskCanvas.width = W; maskCanvas.height = H;
+const mCtx = maskCanvas.getContext('2d');
+mCtx.fillStyle = '#000';
+mCtx.fillRect(0, 0, W, H);
+mCtx.strokeStyle = '#fff';
+mCtx.lineWidth   = TRACK_W;
+mCtx.lineCap     = 'round';
+mCtx.lineJoin    = 'round';
+mCtx.stroke(circuitPath);
+const trackData = mCtx.getImageData(0, 0, W, H).data;
 
-// ── Helpers ────────────────────────────────────────────────────────────────
 function isOnTrack(x, y) {
-    const o = ((x - CX) / OUTER.rx) ** 2 + ((y - CY) / OUTER.ry) ** 2;
-    const i = ((x - CX) / INNER.rx) ** 2 + ((y - CY) / INNER.ry) ** 2;
-    return o <= 1.0 && i >= 1.0;
+    const xi = x|0, yi = y|0;
+    if (xi < 0 || xi >= W || yi < 0 || yi >= H) return false;
+    return trackData[(yi*W + xi)*4] > 128;
 }
+
+// ── Finish line (horizontal, on right main straight) ───────────────────────
+const FIN_Y  = 260;
+const FIN_X1 = 960 - TRACK_W/2 + 2;   // ≈ 916
+const FIN_X2 = 960 + TRACK_W/2 - 2;   // ≈ 1004
+
+// Start positions: just south of finish line, facing south (angle = π)
+const START_BLUE = { x: 942, y: FIN_Y + 40, angle: Math.PI };
+const START_RED  = { x: 978, y: FIN_Y + 80, angle: Math.PI };
 
 // ── Keys ───────────────────────────────────────────────────────────────────
 const keys = {};
@@ -60,718 +83,465 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
-// ── Car class ──────────────────────────────────────────────────────────────
+// ── Car ────────────────────────────────────────────────────────────────────
 class Car {
-    constructor(startPos, color, highlight, controls, label) {
-        this.startPos  = startPos;
-        this.color     = color;
-        this.highlight = highlight;
-        this.controls  = controls;
-        this.label     = label;
-        this.reset();
+    constructor(sp, color, hi, controls, label) {
+        this.startPos = sp; this.color = color; this.hi = hi;
+        this.controls = controls; this.label = label; this.reset();
     }
-
     reset() {
-        this.x        = this.startPos.x;
-        this.y        = this.startPos.y;
-        this.angle    = this.startPos.angle;
-        this.speed    = 0;
-        this.prevX    = this.x;
-        this.finished = false;
+        this.x = this.startPos.x; this.y = this.startPos.y;
+        this.angle = this.startPos.angle; this.speed = 0;
+        this.prevX = this.x; this.prevY = this.y; this.finished = false;
     }
-
     update() {
-        this.prevX = this.x;
-
-        const MAX   = 5.2;
-        const ACCEL = 0.22;
-        const FRIC  = 0.91;
-        const TURN  = 0.068;
-
-        if (keys[this.controls.up])   this.speed += ACCEL;
-        else if (keys[this.controls.down]) this.speed -= ACCEL * 0.85;
-        else this.speed *= FRIC;
-
-        this.speed = Math.max(-MAX * 0.45, Math.min(MAX, this.speed));
-
+        this.prevX = this.x; this.prevY = this.y;
+        const MAX=5.2, ACCEL=0.22, FRIC=0.91, TURN=0.068;
+        if      (keys[this.controls.up])   this.speed += ACCEL;
+        else if (keys[this.controls.down]) this.speed -= ACCEL*0.85;
+        else                               this.speed *= FRIC;
+        this.speed = Math.max(-MAX*0.45, Math.min(MAX, this.speed));
         if (Math.abs(this.speed) > 0.08) {
-            const dir = Math.sign(this.speed);
-            const tf  = 0.45 + 0.55 * Math.min(Math.abs(this.speed) / MAX, 1.0);
-            if (keys[this.controls.left])  this.angle -= TURN * dir * tf;
-            if (keys[this.controls.right]) this.angle += TURN * dir * tf;
+            const dir=Math.sign(this.speed);
+            const tf =0.45+0.55*Math.min(Math.abs(this.speed)/MAX,1);
+            if (keys[this.controls.left])  this.angle -= TURN*dir*tf;
+            if (keys[this.controls.right]) this.angle += TURN*dir*tf;
         }
-
-        const nx = this.x + Math.sin(this.angle) * this.speed;
-        const ny = this.y - Math.cos(this.angle) * this.speed;
-
-        if (isOnTrack(nx, ny)) {
-            this.x = nx;
-            this.y = ny;
-        } else if (isOnTrack(nx, this.y)) {
-            this.x = nx;
-            this.speed *= 0.65;
-        } else if (isOnTrack(this.x, ny)) {
-            this.y = ny;
-            this.speed *= 0.65;
-        } else {
-            this.speed *= -0.25;
-        }
+        const nx = this.x + Math.sin(this.angle)*this.speed;
+        const ny = this.y - Math.cos(this.angle)*this.speed;
+        if      (isOnTrack(nx,ny))       { this.x=nx; this.y=ny; }
+        else if (isOnTrack(nx,this.y))   { this.x=nx; this.speed*=0.65; }
+        else if (isOnTrack(this.x,ny))   { this.y=ny; this.speed*=0.65; }
+        else                             { this.speed*=-0.25; }
     }
-
     crossedFinish() {
         if (this.finished) return false;
-        if (this.prevX < FIN_X && this.x >= FIN_X &&
-            this.y >= FIN_Y1 && this.y <= FIN_Y2) {
-            this.finished = true;
-            return true;
+        if (this.prevY < FIN_Y && this.y >= FIN_Y &&
+            this.x >= FIN_X1 && this.x <= FIN_X2) {
+            this.finished = true; return true;
         }
         return false;
     }
-
     draw() {
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.angle);
-
-        const CW = 18, CH = 32;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.28)';
-        ctx.beginPath();
-        ctx.ellipse(3, 4, CW / 2, CH / 2.2, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.roundRect(-CW / 2, -CH / 2, CW, CH, 5);
-        ctx.fill();
-
-        ctx.fillStyle = this.highlight;
-        ctx.fillRect(-CW / 2 + 4, -CH / 2 + 1, CW - 8, CH - 2);
-
-        ctx.fillStyle = this.color;
-        ctx.fillRect(-CW / 2, -CH / 2 + 8, CW, CH - 16);
-
-        ctx.fillStyle = 'rgba(160,220,255,0.82)';
-        ctx.beginPath();
-        ctx.roundRect(-CW / 2 + 3, -CH / 2 + 4, CW - 6, 9, 2);
-        ctx.fill();
-
-        ctx.fillStyle = 'rgba(160,220,255,0.55)';
-        ctx.beginPath();
-        ctx.roundRect(-CW / 2 + 3, CH / 2 - 12, CW - 6, 8, 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#111';
-        [[-CW / 2 - 4, -CH / 2 + 4],
-         [ CW / 2 - 1, -CH / 2 + 4],
-         [-CW / 2 - 4,  CH / 2 - 12],
-         [ CW / 2 - 1,  CH / 2 - 12]].forEach(([wx, wy]) => {
-            ctx.fillRect(wx, wy, 5, 8);
-            ctx.fillStyle = '#444';
-            ctx.fillRect(wx + 1, wy + 1, 3, 6);
-            ctx.fillStyle = '#111';
+        const CW=18, CH=32;
+        ctx.fillStyle='rgba(0,0,0,0.28)';
+        ctx.beginPath(); ctx.ellipse(3,4,CW/2,CH/2.2,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle=this.color;
+        ctx.beginPath(); ctx.roundRect(-CW/2,-CH/2,CW,CH,5); ctx.fill();
+        ctx.fillStyle=this.hi; ctx.fillRect(-CW/2+4,-CH/2+1,CW-8,CH-2);
+        ctx.fillStyle=this.color; ctx.fillRect(-CW/2,-CH/2+8,CW,CH-16);
+        ctx.fillStyle='rgba(160,220,255,0.82)';
+        ctx.beginPath(); ctx.roundRect(-CW/2+3,-CH/2+4,CW-6,9,2); ctx.fill();
+        ctx.fillStyle='rgba(160,220,255,0.55)';
+        ctx.beginPath(); ctx.roundRect(-CW/2+3,CH/2-12,CW-6,8,2); ctx.fill();
+        ctx.fillStyle='#111';
+        [[-CW/2-4,-CH/2+4],[CW/2-1,-CH/2+4],[-CW/2-4,CH/2-12],[CW/2-1,CH/2-12]]
+        .forEach(([wx,wy])=>{
+            ctx.fillRect(wx,wy,5,8);
+            ctx.fillStyle='#444'; ctx.fillRect(wx+1,wy+1,3,6); ctx.fillStyle='#111';
         });
-
         ctx.restore();
     }
 }
 
-const blueCar = new Car(
-    START_BLUE, '#1155ee', '#3377ff',
-    { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
-    'Bleue (↑↓←→)'
-);
-const redCar = new Car(
-    START_RED, '#cc1111', '#ee3333',
-    { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' },
-    'Rouge (WASD)'
-);
+const blueCar = new Car(START_BLUE,'#1155ee','#3377ff',
+    {up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'},'Bleue (↑↓←→)');
+const redCar  = new Car(START_RED,'#cc1111','#ee3333',
+    {up:'KeyW',down:'KeyS',left:'KeyA',right:'KeyD'},'Rouge (WASD)');
 
-// ── Grandstands (drawn once to offscreen canvas) ───────────────────────────
-const SEAT_COLORS = ['#cc2020','#1144cc','#119933','#ccaa00','#882299','#cc6611'];
-
-function spectatorColor(seed) {
-    const h = ((seed * 137) % 360 + 360) % 360;
-    const s = 50 + (seed * 71) % 35;
-    const l = 42 + (seed * 53) % 22;
-    return `hsl(${h|0},${s|0}%,${l|0}%)`;
+// ── Grandstand helpers (offscreen, drawn once) ─────────────────────────────
+const SEAT_PAL = ['#cc2020','#1144cc','#119933','#ccaa00','#882299','#cc6611'];
+function specColor(seed) {
+    const h=((seed*137)%360+360)%360;
+    return `hsl(${h|0},${50+(seed*71)%35|0}%,${42+(seed*53)%22|0}%)`;
 }
 
-// Horizontal stand: rows stacked top-to-bottom
-function buildStandH(c, x, y, w, h, rows) {
+// Draw a rectangular grandstand block into context c
+// rows = number of seat rows; vertical = true means seats stacked left→right
+function drawStandBlock(c, x, y, w, h, rows, horiz) {
     // Concrete base
-    const grad = c.createLinearGradient(x, y, x, y + h);
-    grad.addColorStop(0, '#585860');
-    grad.addColorStop(1, '#3a3a42');
-    c.fillStyle = grad;
-    c.fillRect(x, y, w, h);
+    const g = horiz
+        ? c.createLinearGradient(x,y,x,y+h)
+        : c.createLinearGradient(x,y,x+w,y);
+    g.addColorStop(0,'#525258'); g.addColorStop(1,'#3e3e48');
+    c.fillStyle=g; c.fillRect(x,y,w,h);
 
-    const rowH = h / rows;
+    const dim = horiz ? h : w;
+    const step = dim / rows;
 
-    for (let r = 0; r < rows; r++) {
-        const ry = y + r * rowH;
+    for (let r=0; r<rows; r++) {
+        // position of this row
+        const rx = horiz ? x       : x + r*step;
+        const ry = horiz ? y+r*step: y;
+        const rw = horiz ? w       : step;
+        const rh = horiz ? step    : h;
 
-        // Step shading
-        c.fillStyle = r % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.05)';
-        c.fillRect(x, ry, w, rowH);
+        // shade
+        c.fillStyle = r%2===0?'rgba(0,0,0,0.15)':'rgba(255,255,255,0.05)';
+        c.fillRect(rx,ry,rw,rh);
 
-        // Top highlight (step edge)
-        c.fillStyle = 'rgba(255,255,255,0.14)';
-        c.fillRect(x, ry, w, 2);
+        // highlight edge
+        c.fillStyle='rgba(255,255,255,0.18)';
+        if (horiz) c.fillRect(rx,ry,rw,2);
+        else       c.fillRect(rx,ry,2,rh);
 
-        // Colored seat sections
-        const secW = 88;
-        for (let sx = 0; sx < w; sx += secW) {
-            const col = SEAT_COLORS[Math.floor(sx / secW) % SEAT_COLORS.length];
-            c.fillStyle = col;
-            c.globalAlpha = 0.52;
-            c.fillRect(x + sx + 1, ry + 4, Math.min(secW - 2, w - sx - 2), rowH - 8);
-            c.globalAlpha = 1;
+        // seat color sections
+        const secSize = horiz ? 90 : 90;
+        const mainDim  = horiz ? rw : rh;
+        for (let s=0; s*secSize<mainDim; s++) {
+            const col=SEAT_PAL[(s+r*5)%SEAT_PAL.length];
+            c.fillStyle=col; c.globalAlpha=0.45;
+            if (horiz) c.fillRect(rx+s*secSize+1,ry+4, Math.min(secSize-2,mainDim-s*secSize-2), rh-8);
+            else       c.fillRect(rx+4,ry+s*secSize+1, rw-8, Math.min(secSize-2,mainDim-s*secSize-2));
+            c.globalAlpha=1;
         }
 
-        // Spectators
-        const headY = ry + rowH * 0.52;
-        for (let sx = x + 6; sx < x + w - 6; sx += 11) {
-            const seed = (sx * 13 + r * 97) | 0;
-            c.fillStyle = spectatorColor(seed);
-            c.beginPath();
-            c.ellipse(sx, headY, 4, 4.5, 0, 0, Math.PI * 2);
-            c.fill();
-            c.fillStyle = 'rgba(255,255,255,0.3)';
-            c.beginPath();
-            c.ellipse(sx - 1.2, headY - 1.8, 1.8, 1.5, -0.5, 0, Math.PI * 2);
-            c.fill();
-        }
-    }
-
-    // Canopy roof strip
-    c.fillStyle = '#1e1e28';
-    c.fillRect(x, y, w, 10);
-    c.fillStyle = 'rgba(255,255,255,0.06)';
-    c.fillRect(x, y + 10, w, 3);
-
-    // Support pillars
-    for (let px = x + 80; px < x + w - 40; px += 120) {
-        c.fillStyle = '#555560';
-        c.fillRect(px - 3, y + 10, 6, h - 10);
-        c.fillStyle = '#888890';
-        c.fillRect(px - 1, y + 10, 2, h - 10);
-    }
-
-    // Border
-    c.strokeStyle = '#1a1a22';
-    c.lineWidth = 2;
-    c.strokeRect(x, y, w, h);
-}
-
-// Vertical stand: columns stacked left-to-right
-function buildStandV(c, x, y, w, h, cols) {
-    const grad = c.createLinearGradient(x, y, x + w, y);
-    grad.addColorStop(0, '#3a3a42');
-    grad.addColorStop(1, '#585860');
-    c.fillStyle = grad;
-    c.fillRect(x, y, w, h);
-
-    const colW = w / cols;
-
-    for (let col = 0; col < cols; col++) {
-        const cx2 = x + col * colW;
-
-        c.fillStyle = col % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.05)';
-        c.fillRect(cx2, y, colW, h);
-
-        // Left edge highlight
-        c.fillStyle = 'rgba(255,255,255,0.14)';
-        c.fillRect(cx2, y, 2, h);
-
-        // Colored seat sections
-        const secH = 88;
-        for (let sy = 0; sy < h; sy += secH) {
-            const sc = SEAT_COLORS[Math.floor(sy / secH) % SEAT_COLORS.length];
-            c.fillStyle = sc;
-            c.globalAlpha = 0.52;
-            c.fillRect(cx2 + 4, y + sy + 1, colW - 8, Math.min(secH - 2, h - sy - 2));
-            c.globalAlpha = 1;
-        }
-
-        // Spectators
-        const headX = cx2 + colW * 0.5;
-        for (let sy = y + 6; sy < y + h - 6; sy += 11) {
-            const seed = (sy * 13 + col * 97) | 0;
-            c.fillStyle = spectatorColor(seed);
-            c.beginPath();
-            c.ellipse(headX, sy, 4, 4.5, 0, 0, Math.PI * 2);
-            c.fill();
-            c.fillStyle = 'rgba(255,255,255,0.3)';
-            c.beginPath();
-            c.ellipse(headX - 1.2, sy - 1.8, 1.8, 1.5, -0.5, 0, Math.PI * 2);
-            c.fill();
-        }
-    }
-
-    // Canopy roof strip (on the track-facing side)
-    c.fillStyle = '#1e1e28';
-    c.fillRect(x, y, w, 10);
-    c.fillStyle = 'rgba(255,255,255,0.06)';
-    c.fillRect(x, y + 10, w, 3);
-
-    // Support pillars (horizontal)
-    for (let py = y + 80; py < y + h - 40; py += 120) {
-        c.fillStyle = '#555560';
-        c.fillRect(x, py - 3, w, 6);
-        c.fillStyle = '#888890';
-        c.fillRect(x, py - 1, w, 2);
-    }
-
-    c.strokeStyle = '#1a1a22';
-    c.lineWidth = 2;
-    c.strokeRect(x, y, w, h);
-}
-
-// Build the offscreen stand image once at startup
-const standCanvas = document.createElement('canvas');
-standCanvas.width = W;
-standCanvas.height = H;
-(function () {
-    const sc = standCanvas.getContext('2d');
-
-    // Outer grass backdrop for stand areas
-    sc.fillStyle = '#2d5420';
-    sc.fillRect(0, 0, W, H);
-
-    // Top stand  (y 4–88, x 92–1008)
-    buildStandH(sc, 92, 4, 916, 84, 4);
-    // Bottom stand (y 652–736, x 92–1008)
-    buildStandH(sc, 92, 652, 916, 84, 4);
-    // Left stand  (x 4–88, y 92–648)
-    buildStandV(sc, 4, 92, 84, 556, 4);
-    // Right stand (x 1012–1096, y 92–648)
-    buildStandV(sc, 1012, 92, 84, 556, 4);
-
-    // Tribune labels
-    sc.save();
-    sc.fillStyle = 'rgba(255,255,255,0.55)';
-    sc.font = 'bold 11px Arial';
-    sc.textAlign = 'center';
-    sc.fillText('TRIBUNES NORD', W / 2, 52);
-    sc.fillText('TRIBUNES SUD', W / 2, H - 32);
-    sc.save();
-    sc.translate(52, H / 2);
-    sc.rotate(-Math.PI / 2);
-    sc.fillText('TRIBUNES OUEST', 0, 0);
-    sc.restore();
-    sc.save();
-    sc.translate(W - 52, H / 2);
-    sc.rotate(Math.PI / 2);
-    sc.fillText('TRIBUNES EST', 0, 0);
-    sc.restore();
-    sc.restore();
-})();
-
-// ── Draw: track ────────────────────────────────────────────────────────────
-function drawTrack() {
-    // Outer grass
-    const g1 = ctx.createRadialGradient(CX, CY, 100, CX, CY, 660);
-    g1.addColorStop(0, '#3c8235');
-    g1.addColorStop(1, '#254f1e');
-    ctx.fillStyle = g1;
-    ctx.fillRect(0, 0, W, H);
-
-    // Blit pre-rendered grandstands
-    ctx.drawImage(standCanvas, 0, 0);
-
-    // Road
-    ctx.fillStyle = '#484848';
-    ctx.beginPath();
-    ctx.ellipse(CX, CY, OUTER.rx, OUTER.ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Outer kerb
-    ctx.strokeStyle = '#bb2222';
-    ctx.lineWidth = 6;
-    ctx.setLineDash([24, 24]);
-    ctx.beginPath();
-    ctx.ellipse(CX, CY, OUTER.rx, OUTER.ry, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Road surface texture
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    for (let t = 0; t < Math.PI * 2; t += 0.07) {
-        const mx = CX + ((OUTER.rx + INNER.rx) / 2) * Math.sin(t);
-        const my = CY - ((OUTER.ry + INNER.ry) / 2) * Math.cos(t);
-        ctx.beginPath();
-        ctx.arc(mx, my, 2, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-
-    // Inner grass
-    const g2 = ctx.createRadialGradient(CX, CY - 30, 20, CX, CY, 280);
-    g2.addColorStop(0, '#47943d');
-    g2.addColorStop(1, '#2d5e25');
-    ctx.fillStyle = g2;
-    ctx.beginPath();
-    ctx.ellipse(CX, CY, INNER.rx, INNER.ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Grand Prix logo in inner oval
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 22px Arial Black';
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillText('GRAND PRIX', CX, CY - 10);
-    ctx.font = '13px Arial';
-    ctx.fillStyle = 'rgba(255,255,255,0.09)';
-    ctx.fillText('★  COURSE DE VOITURES  ★', CX, CY + 14);
-    ctx.textAlign = 'left';
-
-    // Inner kerb
-    ctx.strokeStyle = '#bb2222';
-    ctx.lineWidth = 6;
-    ctx.setLineDash([24, 24]);
-    ctx.beginPath();
-    ctx.ellipse(CX, CY, INNER.rx, INNER.ry, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Center dashed line
-    const mRx = (OUTER.rx + INNER.rx) / 2;
-    const mRy = (OUTER.ry + INNER.ry) / 2;
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([22, 22]);
-    ctx.beginPath();
-    ctx.ellipse(CX, CY, mRx, mRy, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Checkered finish line
-    const sq   = 10;
-    const lx   = FIN_X - 15;
-    const cols = 3;
-    for (let y = FIN_Y1; y < FIN_Y2; y += sq) {
-        for (let c = 0; c < cols; c++) {
-            const row = Math.floor((y - FIN_Y1) / sq);
-            ctx.fillStyle = (row + c) % 2 === 0 ? 'white' : 'black';
-            ctx.fillRect(lx + c * sq, y, sq, Math.min(sq, FIN_Y2 - y));
-        }
-    }
-
-    // Finish line label
-    ctx.save();
-    ctx.translate(FIN_X + 18, (FIN_Y1 + FIN_Y2) / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 11px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('DÉPART / ARRIVÉE', 0, 4);
-    ctx.restore();
-}
-
-// ── Draw: HUD ──────────────────────────────────────────────────────────────
-function roundedBox(x, y, w, h, r, fill, alpha = 0.7) {
-    ctx.fillStyle = fill;
-    ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-}
-
-function drawHUD() {
-    roundedBox(8, 8, 195, 62, 10, '#001133');
-    ctx.fillStyle = '#4488ff';
-    ctx.font = 'bold 13px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText('🔵  ' + blueCar.label, 18, 28);
-    ctx.font = 'bold 32px Arial Black';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(scores.blue + ' pt' + (scores.blue !== 1 ? 's' : ''), 22, 60);
-
-    roundedBox(W - 203, 8, 195, 62, 10, '#1a0000');
-    ctx.fillStyle = '#ff4444';
-    ctx.font = 'bold 13px Arial';
-    ctx.textAlign = 'right';
-    ctx.fillText(redCar.label + '  🔴', W - 18, 28);
-    ctx.font = 'bold 32px Arial Black';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'right';
-    ctx.fillText(scores.red + ' pt' + (scores.red !== 1 ? 's' : ''), W - 22, 60);
-    ctx.textAlign = 'left';
-
-    roundedBox(W / 2 - 90, 8, 180, 42, 10, '#0a0a22');
-    ctx.fillStyle = '#ccccff';
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Manche  ' + round + ' / ' + TOTAL_ROUNDS, W / 2, 34);
-    ctx.textAlign = 'left';
-}
-
-// ── Draw: countdown overlay ────────────────────────────────────────────────
-function drawCountdown(text, color) {
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 130px Arial Black';
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 40;
-    ctx.fillStyle = color;
-    ctx.fillText(text, W / 2, H / 2 + 50);
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'left';
-}
-
-// ── Draw: round winner banner ──────────────────────────────────────────────
-function drawRoundBanner() {
-    if (!roundWinner) return;
-    const color = roundWinner === 'blue' ? '#3399ff' : '#ff3333';
-    const name  = roundWinner === 'blue' ? 'Bleue' : 'Rouge';
-
-    roundedBox(W / 2 - 220, H / 2 - 40, 440, 80, 16, '#000000', 0.65);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 34px Arial Black';
-    ctx.fillStyle = color;
-    ctx.fillText('🏁  Voiture ' + name + ' gagne !', W / 2, H / 2 + 10);
-    ctx.textAlign = 'left';
-}
-
-// ── Stars / confetti ───────────────────────────────────────────────────────
-function spawnStars() {
-    stars = [];
-    for (let i = 0; i < 80; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 6 + 2;
-        stars.push({
-            x: W / 2, y: H / 2 - 40,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed - 2,
-            size: Math.random() * 7 + 2,
-            color: `hsl(${Math.floor(Math.random() * 360)},100%,65%)`,
-            life: 1,
-            decay: Math.random() * 0.007 + 0.003,
-            gravity: 0.12
-        });
-    }
-}
-
-function updateAndDrawStars() {
-    for (const s of stars) {
-        s.x  += s.vx;
-        s.y  += s.vy;
-        s.vy += s.gravity;
-        s.life -= s.decay;
-        if (s.life <= 0) {
-            const angle = Math.random() * Math.PI * 2;
-            const spd   = Math.random() * 6 + 2;
-            s.x = W / 2; s.y = H / 2 - 60;
-            s.vx = Math.cos(angle) * spd;
-            s.vy = Math.sin(angle) * spd - 2;
-            s.life = 1;
-            s.color = `hsl(${Math.floor(Math.random() * 360)},100%,65%)`;
-        }
-        ctx.globalAlpha = Math.max(0, s.life);
-        ctx.fillStyle = s.color;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-}
-
-// ── Draw: trophy ───────────────────────────────────────────────────────────
-function drawTrophy(winner) {
-    trophyScale = Math.min(trophyScale + 0.025, 1);
-    trophyBob  += 0.04;
-
-    const bob  = Math.sin(trophyBob) * 8;
-    const col  = winner === 'blue' ? '#3399ff' : winner === 'red' ? '#ff3333' : '#ffdd00';
-    const name = winner === 'blue' ? 'Bleue' : winner === 'red' ? 'Rouge' : 'Égalité';
-
-    ctx.save();
-    ctx.translate(W / 2, H / 2 - 80 + bob);
-    ctx.scale(trophyScale, trophyScale);
-    ctx.font = '110px serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🏆', 0, 0);
-    ctx.restore();
-    ctx.textBaseline = 'alphabetic';
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 46px Arial Black';
-    ctx.fillStyle = col;
-    ctx.shadowColor = col;
-    ctx.shadowBlur = 25;
-    if (winner === 'draw')
-        ctx.fillText('Égalité !', W / 2, H / 2 + 80);
-    else
-        ctx.fillText('Voiture ' + name + ' gagne ! 🎉', W / 2, H / 2 + 80);
-    ctx.shadowBlur = 0;
-
-    ctx.font = '22px Arial';
-    ctx.fillStyle = '#eeeeee';
-    ctx.fillText('Score final  :  🔵 ' + scores.blue + '  —  🔴 ' + scores.red, W / 2, H / 2 + 120);
-    ctx.textAlign = 'left';
-}
-
-// ── Restart button ─────────────────────────────────────────────────────────
-const BTN = { x: W / 2 - 115, y: H / 2 + 148, w: 230, h: 52 };
-
-function drawRestartBtn() {
-    const grad = ctx.createLinearGradient(BTN.x, BTN.y, BTN.x, BTN.y + BTN.h);
-    grad.addColorStop(0, '#00dd77');
-    grad.addColorStop(1, '#009944');
-    ctx.fillStyle = grad;
-    ctx.shadowColor = '#00ff88';
-    ctx.shadowBlur = 18;
-    ctx.beginPath();
-    ctx.roundRect(BTN.x, BTN.y, BTN.w, BTN.h, 14);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 22px Arial Black';
-    ctx.textAlign = 'center';
-    ctx.fillText('▶  Recommencer', W / 2, BTN.y + 34);
-    ctx.textAlign = 'left';
-}
-
-canvas.addEventListener('click', e => {
-    if (gameState !== 'gameOver' || !showRestart) return;
-    const r = canvas.getBoundingClientRect();
-    const mx = (e.clientX - r.left) * (W / r.width);
-    const my = (e.clientY - r.top)  * (H / r.height);
-    if (mx >= BTN.x && mx <= BTN.x + BTN.w && my >= BTN.y && my <= BTN.y + BTN.h)
-        restartGame();
-});
-canvas.addEventListener('mousemove', e => {
-    if (gameState !== 'gameOver' || !showRestart) { canvas.style.cursor = 'default'; return; }
-    const r = canvas.getBoundingClientRect();
-    const mx = (e.clientX - r.left) * (W / r.width);
-    const my = (e.clientY - r.top)  * (H / r.height);
-    canvas.style.cursor = (mx >= BTN.x && mx <= BTN.x + BTN.w &&
-                           my >= BTN.y && my <= BTN.y + BTN.h) ? 'pointer' : 'default';
-});
-
-// ── Game state ─────────────────────────────────────────────────────────────
-const TOTAL_ROUNDS = 10;
-let round       = 1;
-let scores      = { blue: 0, red: 0 };
-let gameState   = 'countdown';
-let countdown   = 3;
-let cdTimer     = 0;
-let roundWinner = null;
-let reTimer     = 0;
-let goTimer     = 0;
-let goShowing   = false;
-let gameOverTimer = 0;
-let showRestart = false;
-let stars       = [];
-let trophyBob   = 0;
-let trophyScale = 0;
-
-function startRound() {
-    blueCar.reset();
-    redCar.reset();
-    roundWinner = null;
-    gameState   = 'countdown';
-    countdown   = 3;
-    cdTimer     = 0;
-    goShowing   = false;
-    goTimer     = 0;
-}
-
-function restartGame() {
-    scores      = { blue: 0, red: 0 };
-    round       = 1;
-    showRestart = false;
-    trophyScale = 0;
-    trophyBob   = 0;
-    stars       = [];
-    canvas.style.cursor = 'default';
-    startRound();
-}
-
-// ── Main loop ──────────────────────────────────────────────────────────────
-let lastTime = 0;
-
-function loop(ts) {
-    const dt = Math.min((ts - lastTime) / 1000, 0.1);
-    lastTime  = ts;
-
-    drawTrack();
-
-    if (gameState === 'countdown') {
-        blueCar.draw();
-        redCar.draw();
-        drawHUD();
-
-        if (!goShowing) {
-            cdTimer += dt;
-            if (cdTimer >= 1) { cdTimer = 0; countdown--; }
-            if (countdown <= 0) { goShowing = true; goTimer = 0; }
-            else {
-                const colors = ['#ff4444', '#ffaa00', '#ffff00'];
-                drawCountdown(String(countdown), colors[countdown - 1] || '#ffffff');
+        // spectators
+        const spacing=11;
+        if (horiz) {
+            const hy=ry+rh*0.52;
+            for (let sx=rx+5; sx<rx+rw-5; sx+=spacing) {
+                const seed=(sx*13+r*97)|0;
+                c.fillStyle=specColor(seed);
+                c.beginPath(); c.ellipse(sx,hy,4,4.5,0,0,Math.PI*2); c.fill();
+                c.fillStyle='rgba(255,255,255,0.28)';
+                c.beginPath(); c.ellipse(sx-1.2,hy-1.8,1.8,1.5,-0.5,0,Math.PI*2); c.fill();
             }
         } else {
-            goTimer += dt;
-            drawCountdown('PARTEZ !', '#00ff88');
-            if (goTimer >= 0.75) gameState = 'racing';
-        }
-
-    } else if (gameState === 'racing') {
-        blueCar.update();
-        redCar.update();
-
-        const bFin = blueCar.crossedFinish();
-        const rFin = redCar.crossedFinish();
-
-        if (bFin && !roundWinner) { roundWinner = 'blue'; scores.blue++; }
-        if (rFin && !roundWinner) { roundWinner = 'red';  scores.red++;  }
-
-        if (roundWinner) { gameState = 'roundEnd'; reTimer = 0; }
-
-        blueCar.draw();
-        redCar.draw();
-        drawHUD();
-
-    } else if (gameState === 'roundEnd') {
-        blueCar.draw();
-        redCar.draw();
-        drawHUD();
-        drawRoundBanner();
-        reTimer += dt;
-        if (reTimer >= 2.2) {
-            if (round >= TOTAL_ROUNDS) {
-                gameState     = 'gameOver';
-                gameOverTimer = 0;
-                showRestart   = false;
-                spawnStars();
-            } else {
-                round++;
-                startRound();
+            const hx=rx+rw*0.52;
+            for (let sy=ry+5; sy<ry+rh-5; sy+=spacing) {
+                const seed=(sy*13+r*97)|0;
+                c.fillStyle=specColor(seed);
+                c.beginPath(); c.ellipse(hx,sy,4,4.5,0,0,Math.PI*2); c.fill();
+                c.fillStyle='rgba(255,255,255,0.28)';
+                c.beginPath(); c.ellipse(hx-1.2,sy-1.8,1.8,1.5,-0.5,0,Math.PI*2); c.fill();
             }
         }
-
-    } else if (gameState === 'gameOver') {
-        gameOverTimer += dt;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.78)';
-        ctx.fillRect(0, 0, W, H);
-
-        updateAndDrawStars();
-
-        const winner = scores.blue > scores.red ? 'blue'
-                     : scores.red > scores.blue ? 'red'
-                     : 'draw';
-        drawTrophy(winner);
-
-        if (gameOverTimer >= 3 && !showRestart) showRestart = true;
-        if (showRestart) drawRestartBtn();
     }
 
+    // border
+    c.strokeStyle='#1a1a22'; c.lineWidth=2; c.strokeRect(x,y,w,h);
+
+    // canopy
+    c.fillStyle='#1a1a26';
+    if (horiz) c.fillRect(x,y,w,10);
+    else       c.fillRect(x,y,10,h);
+    c.fillStyle='rgba(255,255,255,0.08)';
+    if (horiz) c.fillRect(x,y+10,w,3);
+    else       c.fillRect(x+10,y,3,h);
+}
+
+const standCanvas = document.createElement('canvas');
+standCanvas.width=W; standCanvas.height=H;
+(function buildStands(){
+    const sc=standCanvas.getContext('2d');
+    // Right side of main straight (x: 1008→1110, y: 100→660)
+    drawStandBlock(sc,1008,100,102,560, 5, true);
+    // Label
+    sc.save(); sc.translate(1060,380); sc.rotate(Math.PI/2);
+    sc.fillStyle='rgba(255,255,255,0.55)'; sc.font='bold 13px Arial'; sc.textAlign='center';
+    sc.fillText('TRIBUNES PRINCIPALE',0,0); sc.restore();
+
+    // Top grandstand (y: 0→72, x: 100→810) — above the top section
+    drawStandBlock(sc,100,0,710,72, 3, true);
+    sc.fillStyle='rgba(255,255,255,0.55)'; sc.font='bold 13px Arial'; sc.textAlign='center';
+    sc.fillText('TRIBUNES NORD',455,44);
+
+    // Left side grandstand (x: 0→172, y: 160→660)
+    drawStandBlock(sc,0,160,172,500, 4, false);
+    sc.save(); sc.translate(86,410); sc.rotate(-Math.PI/2);
+    sc.fillStyle='rgba(255,255,255,0.55)'; sc.font='bold 13px Arial'; sc.textAlign='center';
+    sc.fillText('TRIBUNES OUEST',0,0); sc.restore();
+
+    // Bottom grandstand (y: 758→800, x: 140→900)
+    drawStandBlock(sc,140,758,760,40, 2, true);
+    sc.fillStyle='rgba(255,255,255,0.55)'; sc.font='bold 13px Arial'; sc.textAlign='center';
+    sc.fillText('TRIBUNES SUD',520,785);
+})();
+
+// ── Track rendering ─────────────────────────────────────────────────────────
+// Pre-render track to offscreen for speed
+const trackCanvas = document.createElement('canvas');
+trackCanvas.width=W; trackCanvas.height=H;
+(function buildTrack(){
+    const tc = trackCanvas.getContext('2d');
+
+    // 1. Outer grass
+    const g1=tc.createRadialGradient(600,400,100,600,400,750);
+    g1.addColorStop(0,'#3c8235'); g1.addColorStop(1,'#254f1e');
+    tc.fillStyle=g1; tc.fillRect(0,0,W,H);
+
+    // 2. Blit stands
+    tc.drawImage(standCanvas,0,0);
+
+    // 3. Road (double-width stroke then fill interior = "stroke-then-fill" trick)
+    tc.strokeStyle='#484848';
+    tc.lineWidth  = TRACK_W*2;
+    tc.lineCap    = 'round';
+    tc.lineJoin   = 'round';
+    tc.stroke(circuitPath);
+
+    // 4. Inner infield grass over the road interior
+    const g2=tc.createRadialGradient(520,420,50,520,420,500);
+    g2.addColorStop(0,'#47943d'); g2.addColorStop(1,'#2d5e25');
+    tc.fillStyle=g2;
+    tc.fill(circuitPath);
+
+    // 5. Outer kerb (red-white dash on outer edge of road)
+    tc.strokeStyle='#cc2222';
+    tc.lineWidth=4;
+    tc.setLineDash([20,20]);
+    tc.lineCap='butt';
+    // trick: stroke at TRACK_W + extra so it lands right at the outer edge
+    tc.lineWidth = TRACK_W * 2 + 8;
+    tc.stroke(circuitPath);
+    tc.setLineDash([]);
+
+    // 6. Road surface re-draw (kerb was on top; re-draw road)
+    tc.strokeStyle='#484848';
+    tc.lineWidth = TRACK_W * 2 - 8;
+    tc.lineCap='round'; tc.lineJoin='round';
+    tc.stroke(circuitPath);
+
+    // 7. Inner kerb (at inner edge of road)
+    tc.strokeStyle='#cc2222';
+    tc.lineWidth=4;
+    tc.setLineDash([20,20]);
+    // stroke just barely narrower than TRACK_W so it appears at inner edge
+    tc.lineWidth=6;
+    tc.stroke(circuitPath);
+    // ... actually let me just do it simply:
+    // redraw inner grass to clip inner kerb visual - skip complex kerb, add later
+
+    // 8. Re-fill infield (clean)
+    tc.setLineDash([]);
+    tc.fillStyle=g2; tc.fill(circuitPath);
+
+    // 9. Inner infield logo
+    tc.textAlign='center';
+    tc.font='bold 30px Arial Black'; tc.fillStyle='rgba(255,255,255,0.09)';
+    tc.fillText('GRAND PRIX',560,390);
+    tc.font='16px Arial'; tc.fillStyle='rgba(255,255,255,0.07)';
+    tc.fillText('★  COURSE DE VOITURES  ★',560,420);
+    tc.textAlign='left';
+
+    // 10. Center dashed dividing line
+    tc.strokeStyle='rgba(255,255,255,0.22)';
+    tc.lineWidth=2;
+    tc.setLineDash([22,22]);
+    tc.stroke(circuitPath);
+    tc.setLineDash([]);
+
+    // 11. Outer kerb (clean red-white stripes on outer road edge)
+    tc.save();
+    tc.strokeStyle='#bb2222';
+    tc.lineWidth=6; tc.setLineDash([22,22]);
+    const outerKerb = new Path2D();
+    // We approximate the outer edge by stroking the centerline with very wide line
+    // then re-drawing narrower — instead just draw the dashed line at TRACK_W width
+    tc.lineWidth = TRACK_W*2 + 10;
+    tc.stroke(circuitPath);
+    // Then redraw road on top to hide all but the outer few pixels
+    tc.setLineDash([]);
+    tc.strokeStyle='#484848';
+    tc.lineWidth = TRACK_W*2 + 2;
+    tc.stroke(circuitPath);
+    tc.restore();
+
+    // 12. Final inner kerb pass
+    tc.save();
+    tc.strokeStyle='#bb2222'; tc.lineWidth=8; tc.setLineDash([22,22]);
+    tc.stroke(circuitPath);
+    tc.setLineDash([]);
+    // Re-fill infield again to clean
+    tc.fillStyle=g2; tc.fill(circuitPath);
+    tc.restore();
+
+    // 13. Finish line (horizontal checkered band at FIN_Y, x: FIN_X1 to FIN_X2)
+    const sq=10;
+    for (let x2=FIN_X1; x2<FIN_X2; x2+=sq) {
+        for (let row=0; row<2; row++) {
+            const col=((x2-FIN_X1)/sq|0+row)%2===0?'white':'black';
+            tc.fillStyle=col;
+            tc.fillRect(x2, FIN_Y-sq+row*sq, Math.min(sq,FIN_X2-x2), sq);
+        }
+    }
+    // Label
+    tc.save();
+    tc.translate(FIN_X2+14,(FIN_Y-sq+FIN_Y)/2);
+    tc.rotate(Math.PI/2);
+    tc.fillStyle='white'; tc.font='bold 11px Arial'; tc.textAlign='center';
+    tc.fillText('DÉPART / ARRIVÉE',0,4);
+    tc.restore();
+})();
+
+function drawTrack() { ctx.drawImage(trackCanvas,0,0); }
+
+// ── HUD ─────────────────────────────────────────────────────────────────────
+function roundedBox(x,y,w,h,r,fill,alpha=0.7){
+    ctx.fillStyle=fill; ctx.globalAlpha=alpha;
+    ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); ctx.globalAlpha=1;
+}
+function drawHUD(){
+    roundedBox(8,8,195,62,10,'#001133');
+    ctx.fillStyle='#4488ff'; ctx.font='bold 13px Arial'; ctx.textAlign='left';
+    ctx.fillText('🔵  '+blueCar.label,18,28);
+    ctx.font='bold 32px Arial Black'; ctx.fillStyle='#fff';
+    ctx.fillText(scores.blue+' pt'+(scores.blue!==1?'s':''),22,60);
+
+    roundedBox(W-203,8,195,62,10,'#1a0000');
+    ctx.fillStyle='#ff4444'; ctx.font='bold 13px Arial'; ctx.textAlign='right';
+    ctx.fillText(redCar.label+'  🔴',W-18,28);
+    ctx.font='bold 32px Arial Black'; ctx.fillStyle='#fff'; ctx.textAlign='right';
+    ctx.fillText(scores.red+' pt'+(scores.red!==1?'s':''),W-22,60);
+    ctx.textAlign='left';
+
+    roundedBox(W/2-90,8,180,42,10,'#0a0a22');
+    ctx.fillStyle='#ccccff'; ctx.font='bold 18px Arial'; ctx.textAlign='center';
+    ctx.fillText('Manche  '+round+' / '+TOTAL_ROUNDS,W/2,34); ctx.textAlign='left';
+}
+
+// ── Countdown ───────────────────────────────────────────────────────────────
+function drawCountdown(text,color){
+    ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center'; ctx.font='bold 130px Arial Black';
+    ctx.shadowColor=color; ctx.shadowBlur=40; ctx.fillStyle=color;
+    ctx.fillText(text,W/2,H/2+50); ctx.shadowBlur=0; ctx.textAlign='left';
+}
+
+// ── Round banner ─────────────────────────────────────────────────────────────
+function drawRoundBanner(){
+    if (!roundWinner) return;
+    const color=roundWinner==='blue'?'#3399ff':'#ff3333';
+    const name =roundWinner==='blue'?'Bleue':'Rouge';
+    roundedBox(W/2-220,H/2-40,440,80,16,'#000',0.65);
+    ctx.textAlign='center'; ctx.font='bold 34px Arial Black'; ctx.fillStyle=color;
+    ctx.fillText('🏁  Voiture '+name+' gagne !',W/2,H/2+10); ctx.textAlign='left';
+}
+
+// ── Confetti ──────────────────────────────────────────────────────────────────
+let stars=[];
+function spawnStars(){
+    stars=[];
+    for(let i=0;i<80;i++){
+        const a=Math.random()*Math.PI*2,sp=Math.random()*6+2;
+        stars.push({x:W/2,y:H/2-40,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,
+            size:Math.random()*7+2,color:`hsl(${Math.random()*360|0},100%,65%)`,
+            life:1,decay:Math.random()*0.007+0.003,gravity:0.12});
+    }
+}
+function updateAndDrawStars(){
+    for(const s of stars){
+        s.x+=s.vx;s.y+=s.vy;s.vy+=s.gravity;s.life-=s.decay;
+        if(s.life<=0){
+            const a=Math.random()*Math.PI*2,sp=Math.random()*6+2;
+            s.x=W/2;s.y=H/2-60;s.vx=Math.cos(a)*sp;s.vy=Math.sin(a)*sp-2;
+            s.life=1;s.color=`hsl(${Math.random()*360|0},100%,65%)`;
+        }
+        ctx.globalAlpha=Math.max(0,s.life);
+        ctx.fillStyle=s.color;ctx.beginPath();ctx.arc(s.x,s.y,s.size*s.life,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+}
+
+// ── Trophy ────────────────────────────────────────────────────────────────────
+let trophyBob=0,trophyScale=0;
+function drawTrophy(winner){
+    trophyScale=Math.min(trophyScale+0.025,1);trophyBob+=0.04;
+    const bob=Math.sin(trophyBob)*8;
+    const col=winner==='blue'?'#3399ff':winner==='red'?'#ff3333':'#ffdd00';
+    const name=winner==='blue'?'Bleue':winner==='red'?'Rouge':'Égalité';
+    ctx.save();ctx.translate(W/2,H/2-80+bob);ctx.scale(trophyScale,trophyScale);
+    ctx.font='110px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('🏆',0,0);ctx.restore();ctx.textBaseline='alphabetic';
+    ctx.textAlign='center';ctx.font='bold 46px Arial Black';
+    ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=25;
+    ctx.fillText(winner==='draw'?'Égalité !':'Voiture '+name+' gagne ! 🎉',W/2,H/2+80);
+    ctx.shadowBlur=0;ctx.font='22px Arial';ctx.fillStyle='#eee';
+    ctx.fillText('Score final  :  🔵 '+scores.blue+'  —  🔴 '+scores.red,W/2,H/2+120);
+    ctx.textAlign='left';
+}
+
+// ── Restart button ────────────────────────────────────────────────────────────
+const BTN={x:W/2-115,y:H/2+148,w:230,h:52};
+function drawRestartBtn(){
+    const g=ctx.createLinearGradient(BTN.x,BTN.y,BTN.x,BTN.y+BTN.h);
+    g.addColorStop(0,'#00dd77');g.addColorStop(1,'#009944');
+    ctx.fillStyle=g;ctx.shadowColor='#00ff88';ctx.shadowBlur=18;
+    ctx.beginPath();ctx.roundRect(BTN.x,BTN.y,BTN.w,BTN.h,14);ctx.fill();
+    ctx.shadowBlur=0;ctx.fillStyle='white';ctx.font='bold 22px Arial Black';
+    ctx.textAlign='center';ctx.fillText('▶  Recommencer',W/2,BTN.y+34);ctx.textAlign='left';
+}
+canvas.addEventListener('click',e=>{
+    if(gameState!=='gameOver'||!showRestart)return;
+    const r=canvas.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
+    if(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h)restartGame();
+});
+canvas.addEventListener('mousemove',e=>{
+    if(gameState!=='gameOver'||!showRestart){canvas.style.cursor='default';return;}
+    const r=canvas.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
+    canvas.style.cursor=(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h)?'pointer':'default';
+});
+
+// ── Game state ────────────────────────────────────────────────────────────────
+const TOTAL_ROUNDS=10;
+let round=1,scores={blue:0,red:0},gameState='countdown';
+let countdown=3,cdTimer=0,roundWinner=null,reTimer=0;
+let goTimer=0,goShowing=false,gameOverTimer=0,showRestart=false;
+
+function startRound(){
+    blueCar.reset();redCar.reset();roundWinner=null;
+    gameState='countdown';countdown=3;cdTimer=0;goShowing=false;goTimer=0;
+}
+function restartGame(){
+    scores={blue:0,red:0};round=1;showRestart=false;
+    trophyScale=0;trophyBob=0;stars=[];canvas.style.cursor='default';startRound();
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+let lastTime=0;
+function loop(ts){
+    const dt=Math.min((ts-lastTime)/1000,0.1);lastTime=ts;
+    drawTrack();
+
+    if(gameState==='countdown'){
+        blueCar.draw();redCar.draw();drawHUD();
+        if(!goShowing){
+            cdTimer+=dt;if(cdTimer>=1){cdTimer=0;countdown--;}
+            if(countdown<=0){goShowing=true;goTimer=0;}
+            else{const cs=['#ff4444','#ffaa00','#ffff00'];drawCountdown(String(countdown),cs[countdown-1]||'#fff');}
+        } else {
+            goTimer+=dt;drawCountdown('PARTEZ !','#00ff88');
+            if(goTimer>=0.75)gameState='racing';
+        }
+    } else if(gameState==='racing'){
+        blueCar.update();redCar.update();
+        const bF=blueCar.crossedFinish(),rF=redCar.crossedFinish();
+        if(bF&&!roundWinner){roundWinner='blue';scores.blue++;}
+        if(rF&&!roundWinner){roundWinner='red'; scores.red++; }
+        if(roundWinner){gameState='roundEnd';reTimer=0;}
+        blueCar.draw();redCar.draw();drawHUD();
+    } else if(gameState==='roundEnd'){
+        blueCar.draw();redCar.draw();drawHUD();drawRoundBanner();
+        reTimer+=dt;
+        if(reTimer>=2.2){
+            if(round>=TOTAL_ROUNDS){gameState='gameOver';gameOverTimer=0;showRestart=false;spawnStars();}
+            else{round++;startRound();}
+        }
+    } else if(gameState==='gameOver'){
+        gameOverTimer+=dt;
+        ctx.fillStyle='rgba(0,0,0,0.78)';ctx.fillRect(0,0,W,H);
+        updateAndDrawStars();
+        const winner=scores.blue>scores.red?'blue':scores.red>scores.blue?'red':'draw';
+        drawTrophy(winner);
+        if(gameOverTimer>=3&&!showRestart)showRestart=true;
+        if(showRestart)drawRestartBtn();
+    }
     requestAnimationFrame(loop);
 }
 
