@@ -118,12 +118,23 @@ function isOnTrack(x, y) {
 //  KEYS
 // ════════════════════════════════════════════════════════════
 const keys = {};
+const lastKeyTime = {};  // for double-press detection
+const boostKeys = {};    // which car's boost key was just double-pressed
+
 window.addEventListener('keydown', e => {
+    if (keys[e.code]) return; // already held, ignore repeat
     keys[e.code] = true;
+    const now = performance.now();
+    if (lastKeyTime[e.code] && now - lastKeyTime[e.code] < 300) {
+        boostKeys[e.code] = true;
+    }
+    lastKeyTime[e.code] = now;
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))
         e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+const TRAIL_COLORS = ['#ff0000','#ff7700','#ffff00','#00ff00','#00ccff','#aa00ff','#ff00aa'];
 
 // ════════════════════════════════════════════════════════════
 //  CAR
@@ -137,10 +148,15 @@ class Car {
         this.x=this.startPos.x; this.y=this.startPos.y;
         this.angle=this.startPos.angle; this.speed=0;
         this.prevX=this.x; this.prevY=this.y; this.finished=false;
+        this.boostTimer=0; this.trail=[];
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
-        const MAX=5.2,ACCEL=0.22,FRIC=0.91,TURN=0.068;
+        // consume double-press boost trigger
+        if (boostKeys[this.controls.up]) { this.boostTimer=1.8; boostKeys[this.controls.up]=false; }
+        if (this.boostTimer>0) this.boostTimer-=1/60;
+        const boosting=this.boostTimer>0;
+        const MAX=boosting?9.5:5.2, ACCEL=boosting?0.38:0.22, FRIC=0.91, TURN=0.068;
         if      (keys[this.controls.up])   this.speed+=ACCEL;
         else if (keys[this.controls.down]) this.speed-=ACCEL*0.85;
         else                               this.speed*=FRIC;
@@ -157,17 +173,41 @@ class Car {
         else if (isOnTrack(nx,this.y)) {this.x=nx;this.speed*=0.65;}
         else if (isOnTrack(this.x,ny)) {this.y=ny;this.speed*=0.65;}
         else                           {this.speed*=-0.25;}
+        // trail
+        if (boosting) {
+            this.trail.push({x:this.x,y:this.y,life:1,
+                color:TRAIL_COLORS[Math.floor(performance.now()/60)%TRAIL_COLORS.length]});
+        }
+        for (const p of this.trail) p.life-=0.045;
+        this.trail=this.trail.filter(p=>p.life>0);
     }
     crossedFinish() {
         if (this.finished) return false;
-        // detect southward crossing of FIN_Y on the right main straight
         if (this.prevY < FIN_Y && this.y >= FIN_Y &&
             this.x >= FIN_X1 && this.x <= FIN_X2) {
             this.finished=true; return true;
         }
         return false;
     }
+    drawTrail() {
+        for (const p of this.trail) {
+            ctx.globalAlpha=p.life*0.7;
+            ctx.fillStyle=p.color;
+            ctx.beginPath(); ctx.arc(p.x,p.y,7*p.life,0,Math.PI*2); ctx.fill();
+        }
+        ctx.globalAlpha=1;
+    }
     draw() {
+        // boost glow ring
+        if (this.boostTimer>0) {
+            ctx.save(); ctx.translate(this.x,this.y);
+            const glow=ctx.createRadialGradient(0,0,4,0,0,28);
+            const hue=(performance.now()/5)%360;
+            glow.addColorStop(0,`hsla(${hue|0},100%,70%,0.7)`);
+            glow.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(0,0,28,0,Math.PI*2); ctx.fill();
+            ctx.restore();
+        }
         ctx.save();
         ctx.translate(this.x,this.y); ctx.rotate(this.angle);
         const CW=18,CH=32;
@@ -547,8 +587,10 @@ function loop(ts){
         if(bF&&!roundWinner){roundWinner='blue';scores.blue++;}
         if(rF&&!roundWinner){roundWinner='red'; scores.red++; }
         if(roundWinner){gameState='roundEnd';reTimer=0;}
+        blueCar.drawTrail(); redCar.drawTrail();
         blueCar.draw(); redCar.draw(); drawHUD();
     } else if (gameState==='roundEnd'){
+        blueCar.drawTrail(); redCar.drawTrail();
         blueCar.draw(); redCar.draw(); drawHUD(); drawRoundBanner();
         reTimer+=dt;
         if(reTimer>=2.2){
