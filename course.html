@@ -100,7 +100,7 @@ class Car {
         else                           {this.speed*=-0.25;}
         const zone=checkZone(this);
         if (zone==='boost') this.zoneBoost=2.5;
-        if (zone==='slow')  this.zoneSlow=2.2;
+        if (zone==='slow')  { this.zoneSlow=2.2; this.zoneBoost=0; }
         if      (this.zoneBoost>0) { this.zoneBoost-=1/60; this.speed=Math.min(this.speed*1.06+0.2,8.5); this.zoneEffect='boost'; }
         else if (this.zoneSlow>0)  { this.zoneSlow-=1/60;  this.speed*=0.88; this.zoneEffect='slow'; }
         else                       { this.zoneEffect=null; }
@@ -247,7 +247,7 @@ class BotCar extends Car {
 
         const zone=checkZone(this);
         if (zone==='boost') this.zoneBoost=2.5;
-        if (zone==='slow')  this.zoneSlow=2.2;
+        if (zone==='slow')  { this.zoneSlow=2.2; this.zoneBoost=0; }
         if      (this.zoneBoost>0) { this.zoneBoost-=1/60; this.speed=Math.min(this.speed*1.06+0.2,8.5); this.zoneEffect='boost'; }
         else if (this.zoneSlow>0)  { this.zoneSlow-=1/60;  this.speed*=0.88; this.zoneEffect='slow'; }
         else                       { this.zoneEffect=null; }
