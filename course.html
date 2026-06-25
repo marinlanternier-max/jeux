@@ -187,14 +187,15 @@ class BotCar extends Car {
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
-        const MAX=5.1, ACCEL=0.23, FRIC=0.91, TURN=0.068;
+        const D=DIFF_PRESETS[botDifficulty];
+        const MAX=D.maxSpeed, ACCEL=D.accel, FRIC=0.91, TURN=D.turn;
 
         const wps = currentCircuit.botWaypoints;
         if (wps && wps.length > 0) {
             const wp = wps[this.wpIdx % wps.length];
             const dx = wp.x - this.x, dy = wp.y - this.y;
             const dist = Math.sqrt(dx*dx+dy*dy);
-            if (dist < 38) this.wpIdx = (this.wpIdx+1) % wps.length;
+            if (dist < D.wpRadius) this.wpIdx = (this.wpIdx+1) % wps.length;
 
             const targetAngle = Math.atan2(dx, -dy);
             let diff = targetAngle - this.angle;
@@ -215,7 +216,7 @@ class BotCar extends Car {
             const tA2 = Math.atan2(dx2,-dy2);
             let d2 = tA2 - this.angle;
             while(d2>Math.PI) d2-=Math.PI*2; while(d2<-Math.PI) d2+=Math.PI*2;
-            if (Math.abs(d2) > 0.65 && this.speed > 2.8) braking = true;
+            if (Math.abs(d2) > D.brakeAngle && this.speed > 2.2) braking = true;
         }
         if (braking) this.speed -= ACCEL*0.7;
         else         this.speed += ACCEL;
@@ -790,13 +791,23 @@ function drawRestartBtn(){
     ctx.textAlign='center'; ctx.fillText('▶  Recommencer',W/2,BTN.y+34); ctx.textAlign='left';
 }
 
-// Player count buttons in menu
 const PC_BTNS=[
     {label:'2 Joueurs',count:2,x:W/2-195,y:480,w:120,h:44},
     {label:'3 Joueurs',count:3,x:W/2-55, y:480,w:120,h:44},
     {label:'4 Joueurs',count:4,x:W/2+85, y:480,w:120,h:44},
 ];
+const DIFF_BTNS=[
+    {label:'😊 Facile',  key:'facile',   x:W/2-195,y:546,w:118,h:38,color:'#00aa44',glow:'#00ff88'},
+    {label:'⚡ Normal',  key:'normal',   x:W/2-68, y:546,w:118,h:38,color:'#cc8800',glow:'#ffcc00'},
+    {label:'💀 Difficile',key:'difficile',x:W/2+59, y:546,w:136,h:38,color:'#cc2200',glow:'#ff4422'},
+];
 let playerCount=2;
+let botDifficulty='normal'; // 'facile' | 'normal' | 'difficile'
+const DIFF_PRESETS={
+    facile:   {maxSpeed:3.2, accel:0.15, turn:0.052, brakeAngle:0.45, wpRadius:50},
+    normal:   {maxSpeed:5.1, accel:0.23, turn:0.068, brakeAngle:0.65, wpRadius:38},
+    difficile:{maxSpeed:6.4, accel:0.30, turn:0.082, brakeAngle:0.80, wpRadius:28},
+};
 
 canvas.addEventListener('click',e=>{
     const r=canvas.getBoundingClientRect();
@@ -811,6 +822,9 @@ canvas.addEventListener('click',e=>{
         for(const b of PC_BTNS){
             if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h) playerCount=b.count;
         }
+        for(const b of DIFF_BTNS){
+            if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h) botDifficulty=b.key;
+        }
     }
 });
 canvas.addEventListener('mousemove',e=>{
@@ -819,7 +833,8 @@ canvas.addEventListener('mousemove',e=>{
     if(gameState==='menu'){
         const onStart=mx>=MBTN.x&&mx<=MBTN.x+MBTN.w&&my>=MBTN.y&&my<=MBTN.y+MBTN.h;
         const onPC=PC_BTNS.some(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
-        canvas.style.cursor=(onStart||onPC)?'pointer':'default';
+        const onDiff=DIFF_BTNS.some(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
+        canvas.style.cursor=(onStart||onPC||onDiff)?'pointer':'default';
     } else if(gameState==='gameOver'&&showRestart){
         canvas.style.cursor=(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h)?'pointer':'default';
     } else { canvas.style.cursor='default'; }
@@ -828,7 +843,7 @@ canvas.addEventListener('mousemove',e=>{
 // ════════════════════════════════════════════════════════════
 //  MENU
 // ════════════════════════════════════════════════════════════
-const MBTN={x:W/2-130,y:H/2+150,w:260,h:60};
+const MBTN={x:W/2-130,y:H/2+218,w:260,h:60};
 let menuTime=0;
 function drawMenu(dt){
     menuTime+=dt;
@@ -921,9 +936,25 @@ function drawMenu(dt){
     }
     ctx.shadowBlur=0;
 
+    // ── Difficulty selector ───────────────────────────────
+    ctx.fillStyle='rgba(255,255,255,0.06)';ctx.beginPath();ctx.roundRect(W/2-210,532,420,62,10);ctx.fill();
+    ctx.strokeStyle='rgba(200,100,50,0.25)';ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(W/2-210,532,420,62,10);ctx.stroke();
+    ctx.fillStyle='rgba(255,200,140,0.75)';ctx.font='bold 12px Arial';ctx.fillText('DIFFICULTÉ DES BOTS',W/2,548);
+    for(const b of DIFF_BTNS){
+        const sel=botDifficulty===b.key;
+        ctx.shadowColor=sel?b.glow:'transparent'; ctx.shadowBlur=sel?14:0;
+        ctx.fillStyle=sel?b.color:'rgba(255,255,255,0.07)';
+        ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,9);ctx.fill();ctx.shadowBlur=0;
+        ctx.strokeStyle=sel?b.glow:'rgba(255,255,255,0.18)';ctx.lineWidth=sel?2:1;
+        ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,9);ctx.stroke();
+        ctx.fillStyle=sel?'#fff':'rgba(200,210,230,0.7)';ctx.font=`bold ${sel?13:12}px Arial`;
+        ctx.fillText(b.label,b.x+b.w/2,b.y+b.h/2+5);
+    }
+    ctx.shadowBlur=0;
+
     // rules
     [['🏁','10 manches — 1 point par victoire'],['⚡','Double-appui = BOOST (3s / manche)'],['▲','Zones vertes = accélérateur'],['⚠','Taches brunes = ralentisseur']].forEach(([ic,txt],i)=>{
-        const ry=538+i*38;
+        const ry=608+i*34;
         ctx.fillStyle='rgba(255,255,255,0.04)';ctx.beginPath();ctx.roundRect(W/2-195,ry-14,390,30,8);ctx.fill();
         ctx.fillStyle='rgba(200,230,255,0.75)';ctx.font='13px Arial';ctx.fillText(ic+'  '+txt,W/2,ry+4);
     });
