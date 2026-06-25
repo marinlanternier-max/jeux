@@ -553,30 +553,112 @@ canvas.addEventListener('click',e=>{
     const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
     if(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h) restartGame();
 });
+// menu click handled below near MENU section
 canvas.addEventListener('mousemove',e=>{
-    if(gameState!=='gameOver'||!showRestart){canvas.style.cursor='default';return;}
     const r=canvas.getBoundingClientRect();
     const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
-    canvas.style.cursor=(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h)
-        ?'pointer':'default';
+    const onMain=mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h;
+    const onMenu=mx>=MBTN.x&&mx<=MBTN.x+MBTN.w&&my>=MBTN.y&&my<=MBTN.y+MBTN.h;
+    if(gameState==='menu') canvas.style.cursor=onMenu?'pointer':'default';
+    else if(gameState==='gameOver'&&showRestart) canvas.style.cursor=onMain?'pointer':'default';
+    else canvas.style.cursor='default';
+});
+
+// ════════════════════════════════════════════════════════════
+//  MENU
+// ════════════════════════════════════════════════════════════
+const MBTN={x:W/2-130,y:H/2+80,w:260,h:60};
+let menuTime=0;
+
+function drawMenu(dt){
+    menuTime+=dt;
+    // dark overlay on track
+    ctx.fillStyle='rgba(0,0,5,0.72)'; ctx.fillRect(0,0,W,H);
+
+    // animated neon title
+    const pulse=0.7+0.3*Math.sin(menuTime*2.5);
+    ctx.save();
+    ctx.textAlign='center';
+
+    // shadow layers
+    ctx.shadowColor='#00aaff'; ctx.shadowBlur=60*pulse;
+    ctx.fillStyle='#003366';
+    ctx.font='bold 90px Arial Black';
+    ctx.fillText('GRAND PRIX',W/2+4,H/2-120+4);
+
+    ctx.shadowColor='#00ccff'; ctx.shadowBlur=30*pulse;
+    ctx.fillStyle='#00eeff';
+    ctx.fillText('GRAND PRIX',W/2,H/2-120);
+
+    // subtitle
+    ctx.shadowBlur=0; ctx.font='bold 22px Arial';
+    ctx.fillStyle='rgba(200,220,255,0.85)';
+    ctx.fillText('Course de Voitures  ·  2 Joueurs',W/2,H/2-68);
+
+    // controls legend
+    ctx.font='16px Arial'; ctx.fillStyle='rgba(180,200,255,0.65)';
+    ctx.fillText('🔵  Flèches  ↑ ↓ ← →          🔴  WASD',W/2,H/2-30);
+    ctx.font='13px Arial'; ctx.fillStyle='rgba(150,180,255,0.5)';
+    ctx.fillText('Double-appui ↑ / W  →  BOOST  ⚡',W/2,H/2+5);
+
+    // car silhouettes flanking title
+    [-1,1].forEach(side=>{
+        ctx.save();
+        ctx.translate(W/2+side*310, H/2-120);
+        ctx.rotate(side*0.18*Math.sin(menuTime*1.2));
+        ctx.font='52px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.shadowColor=side<0?'#3366ff':'#ff2222'; ctx.shadowBlur=20;
+        ctx.fillText('🚗',0,0);
+        ctx.restore();
+    });
+
+    // start button
+    const hover=(function(){
+        // can't get mouse here — use a flag set by mousemove
+        return false; // glow always on
+    })();
+    const g=ctx.createLinearGradient(MBTN.x,MBTN.y,MBTN.x,MBTN.y+MBTN.h);
+    g.addColorStop(0,'#00eeff'); g.addColorStop(1,'#0066cc');
+    ctx.shadowColor='#00ccff'; ctx.shadowBlur=25*pulse;
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.roundRect(MBTN.x,MBTN.y,MBTN.w,MBTN.h,18); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#000d1a'; ctx.font='bold 26px Arial Black';
+    ctx.fillText('▶  COMMENCER',W/2,MBTN.y+40);
+
+    // small footer
+    ctx.font='11px Arial'; ctx.fillStyle='rgba(100,120,160,0.6)';
+    ctx.fillText('10 manches  ·  Boost double-appui  ·  Bonne course !',W/2,H-18);
+
+    ctx.shadowBlur=0; ctx.restore();
+}
+
+canvas.addEventListener('click',e=>{
+    const r=canvas.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
+    if(gameState==='menu'&&mx>=MBTN.x&&mx<=MBTN.x+MBTN.w&&my>=MBTN.y&&my<=MBTN.y+MBTN.h){
+        gameState='countdown'; menuTime=0; startRound(); return;
+    }
 });
 
 // ════════════════════════════════════════════════════════════
 //  GAME STATE
 // ════════════════════════════════════════════════════════════
 const TOTAL_ROUNDS=10;
-let round=1,scores={blue:0,red:0},gameState='countdown';
+let round=1,scores={blue:0,red:0},gameState='menu';
 let countdown=3,cdTimer=0,roundWinner=null,reTimer=0;
 let goTimer=0,goShowing=false,gameOverTimer=0,showRestart=false;
 
 function startRound(){
     blueCar.reset(); redCar.reset(); roundWinner=null;
-    gameState='countdown'; countdown=3; cdTimer=0; goShowing=false; goTimer=0;
+    if(gameState!=='menu') gameState='countdown';
+    countdown=3; cdTimer=0; goShowing=false; goTimer=0;
 }
 function restartGame(){
     scores={blue:0,red:0}; round=1; showRestart=false;
     trophyScale=0; trophyBob=0; stars=[]; canvas.style.cursor='default';
-    startRound();
+    blueCar.reset(); redCar.reset(); roundWinner=null;
+    gameState='countdown'; countdown=3; cdTimer=0; goShowing=false; goTimer=0;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -587,7 +669,9 @@ function loop(ts){
     const dt=Math.min((ts-lastTime)/1000,0.1); lastTime=ts;
     drawTrack();
 
-    if (gameState==='countdown'){
+    if (gameState==='menu'){
+        drawMenu(dt);
+    } else if (gameState==='countdown'){
         blueCar.draw(); redCar.draw(); drawHUD();
         if (!goShowing){
             cdTimer+=dt; if(cdTimer>=1){cdTimer=0;countdown--;}
