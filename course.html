@@ -816,76 +816,164 @@ let menuTime=0;
 
 function drawMenu(dt){
     menuTime+=dt;
-    // dark overlay on track
-    ctx.fillStyle='rgba(0,0,5,0.72)'; ctx.fillRect(0,0,W,H);
-
-    // animated neon title
-    const pulse=0.7+0.3*Math.sin(menuTime*2.5);
     ctx.save();
-    ctx.textAlign='center';
+    const pulse=0.7+0.3*Math.sin(menuTime*2.5);
 
-    // shadow layers
-    ctx.shadowColor='#00aaff'; ctx.shadowBlur=60*pulse;
-    ctx.fillStyle='#003366';
-    ctx.font='bold 90px Arial Black';
-    ctx.fillText('GRAND PRIX',W/2+4,H/2-120+4);
+    // ── fond dégradé sombre ──────────────────────────────────
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#00000f'); bg.addColorStop(0.5,'#000a1a'); bg.addColorStop(1,'#050010');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
 
-    ctx.shadowColor='#00ccff'; ctx.shadowBlur=30*pulse;
-    ctx.fillStyle='#00eeff';
-    ctx.fillText('GRAND PRIX',W/2,H/2-120);
+    // ── étoiles / particules de fond ────────────────────────
+    ctx.fillStyle='rgba(255,255,255,0.55)';
+    const starSeeds=[[80,60],[200,30],[340,90],[500,20],[650,75],[820,40],[1050,55],[1150,80],
+                     [130,700],[280,730],[430,760],[600,740],[750,710],[950,750],[1100,720],
+                     [60,400],[1140,350],[30,200],[1170,600]];
+    for(const [sx,sy] of starSeeds){
+        const twinkle=0.3+0.5*Math.abs(Math.sin(menuTime*1.3+sx));
+        ctx.globalAlpha=twinkle;
+        ctx.beginPath(); ctx.arc(sx,sy,1.5,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
 
-    // subtitle
-    ctx.shadowBlur=0; ctx.font='bold 22px Arial';
-    ctx.fillStyle='rgba(200,220,255,0.85)';
-    ctx.fillText('Course de Voitures  ·  2 Joueurs',W/2,H/2-68);
+    // ── lignes de vitesse horizontales (style F1 broadcast) ──
+    ctx.strokeStyle='rgba(0,180,255,0.08)'; ctx.lineWidth=1;
+    for(let i=0;i<18;i++){
+        const yy=i*46+((menuTime*30)%46);
+        ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke();
+    }
 
-    // controls legend
-    ctx.font='16px Arial'; ctx.fillStyle='rgba(180,200,255,0.65)';
-    ctx.fillText('🔵  Flèches  ↑ ↓ ← →          🔴  WASD',W/2,H/2-30);
-    ctx.font='13px Arial'; ctx.fillStyle='rgba(150,180,255,0.5)';
-    ctx.fillText('Double-appui ↑ / W  →  BOOST  ⚡',W/2,H/2+5);
+    // ── bande déco gauche ────────────────────────────────────
+    const leftBand=ctx.createLinearGradient(0,0,90,0);
+    leftBand.addColorStop(0,'rgba(0,100,255,0.18)'); leftBand.addColorStop(1,'rgba(0,100,255,0)');
+    ctx.fillStyle=leftBand; ctx.fillRect(0,0,90,H);
+    // barre bleue fine
+    ctx.fillStyle='rgba(0,180,255,0.5)'; ctx.fillRect(0,0,3,H);
 
-    // car silhouettes flanking title
-    [-1,1].forEach(side=>{
-        ctx.save();
-        ctx.translate(W/2+side*310, H/2-120);
-        ctx.rotate(side*0.18*Math.sin(menuTime*1.2));
-        ctx.font='52px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.shadowColor=side<0?'#3366ff':'#ff2222'; ctx.shadowBlur=20;
-        ctx.fillText('🚗',0,0);
-        ctx.restore();
+    // ── bande déco droite ────────────────────────────────────
+    const rightBand=ctx.createLinearGradient(W,0,W-90,0);
+    rightBand.addColorStop(0,'rgba(220,30,30,0.18)'); rightBand.addColorStop(1,'rgba(220,30,30,0)');
+    ctx.fillStyle=rightBand; ctx.fillRect(W-90,0,90,H);
+    ctx.fillStyle='rgba(255,60,60,0.5)'; ctx.fillRect(W-3,0,3,H);
+
+    // ── panneau gauche : voiture bleue + stats ───────────────
+    ctx.fillStyle='rgba(0,20,60,0.75)';
+    ctx.beginPath(); ctx.roundRect(12,80,200,580,14); ctx.fill();
+    ctx.strokeStyle='rgba(0,150,255,0.4)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(12,80,200,580,14); ctx.stroke();
+    // header bleu
+    const lh=ctx.createLinearGradient(12,80,212,80);
+    lh.addColorStop(0,'rgba(0,80,200,0.9)'); lh.addColorStop(1,'rgba(0,40,120,0.9)');
+    ctx.fillStyle=lh; ctx.beginPath(); ctx.roundRect(12,80,200,44,{upperLeft:14,upperRight:14,lowerLeft:0,lowerRight:0}); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px Arial Black'; ctx.textAlign='center';
+    ctx.fillText('JOUEUR 1',112,108);
+    ctx.font='38px serif'; ctx.fillText('🔵',112,160);
+    ctx.font='bold 13px Arial'; ctx.fillStyle='rgba(180,210,255,0.9)';
+    ctx.fillText('Flèches directionnelles',112,195);
+    ctx.font='22px Arial'; ctx.fillText('↑  ↓  ←  →',112,225);
+    // boost info
+    ctx.fillStyle='rgba(0,255,120,0.15)'; ctx.beginPath(); ctx.roundRect(22,240,180,36,8); ctx.fill();
+    ctx.strokeStyle='rgba(0,255,120,0.4)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(22,240,180,36,8); ctx.stroke();
+    ctx.fillStyle='#0f0'; ctx.font='bold 12px Arial'; ctx.fillText('⚡  Double ↑  =  BOOST',112,263);
+    // mini stats fictifs
+    const lstats=[['Victoires','247'],['Meilleur tour','1:32.4'],['Rang','⭐ Expert'],['Pays','🇫🇷 France']];
+    lstats.forEach(([k,v],i)=>{
+        const sy2=300+i*58;
+        ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.roundRect(22,sy2,180,46,6); ctx.fill();
+        ctx.fillStyle='rgba(140,180,255,0.7)'; ctx.font='11px Arial'; ctx.fillText(k,112,sy2+16);
+        ctx.fillStyle='#fff'; ctx.font='bold 16px Arial'; ctx.fillText(v,112,sy2+36);
     });
 
-    // start button
-    const hover=(function(){
-        // can't get mouse here — use a flag set by mousemove
-        return false; // glow always on
-    })();
-    const g=ctx.createLinearGradient(MBTN.x,MBTN.y,MBTN.x,MBTN.y+MBTN.h);
-    g.addColorStop(0,'#00eeff'); g.addColorStop(1,'#0066cc');
-    ctx.shadowColor='#00ccff'; ctx.shadowBlur=25*pulse;
-    ctx.fillStyle=g;
-    ctx.beginPath(); ctx.roundRect(MBTN.x,MBTN.y,MBTN.w,MBTN.h,18); ctx.fill();
+    // ── panneau droit : voiture rouge + stats ────────────────
+    ctx.fillStyle='rgba(60,0,0,0.75)';
+    ctx.beginPath(); ctx.roundRect(W-212,80,200,580,14); ctx.fill();
+    ctx.strokeStyle='rgba(255,60,60,0.4)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(W-212,80,200,580,14); ctx.stroke();
+    const rh2=ctx.createLinearGradient(W-212,80,W-12,80);
+    rh2.addColorStop(0,'rgba(140,0,0,0.9)'); rh2.addColorStop(1,'rgba(200,20,20,0.9)');
+    ctx.fillStyle=rh2; ctx.beginPath(); ctx.roundRect(W-212,80,200,44,{upperLeft:14,upperRight:14,lowerLeft:0,lowerRight:0}); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px Arial Black'; ctx.fillText('JOUEUR 2',W-112,108);
+    ctx.font='38px serif'; ctx.fillText('🔴',W-112,160);
+    ctx.font='bold 13px Arial'; ctx.fillStyle='rgba(255,200,180,0.9)';
+    ctx.fillText('Touches WASD',W-112,195);
+    ctx.font='22px Arial'; ctx.fillText('W  A  S  D',W-112,225);
+    ctx.fillStyle='rgba(0,255,120,0.15)'; ctx.beginPath(); ctx.roundRect(W-202,240,180,36,8); ctx.fill();
+    ctx.strokeStyle='rgba(0,255,120,0.4)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(W-202,240,180,36,8); ctx.stroke();
+    ctx.fillStyle='#0f0'; ctx.font='bold 12px Arial'; ctx.fillText('⚡  Double W  =  BOOST',W-112,263);
+    const rstats=[['Victoires','189'],['Meilleur tour','1:34.1'],['Rang','🔥 Pro'],['Pays','🇧🇪 Belgique']];
+    rstats.forEach(([k,v],i)=>{
+        const sy2=300+i*58;
+        ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.roundRect(W-202,sy2,180,46,6); ctx.fill();
+        ctx.fillStyle='rgba(255,160,140,0.7)'; ctx.font='11px Arial'; ctx.fillText(k,W-112,sy2+16);
+        ctx.fillStyle='#fff'; ctx.font='bold 16px Arial'; ctx.fillText(v,W-112,sy2+36);
+    });
+
+    // ── centre : titre + bouton ──────────────────────────────
+    ctx.textAlign='center';
+    // glow title
+    ctx.shadowColor='#00aaff'; ctx.shadowBlur=70*pulse;
+    ctx.fillStyle='#003366'; ctx.font='bold 96px Arial Black';
+    ctx.fillText('GRAND PRIX',W/2+4,200+4);
+    ctx.shadowColor='#00ccff'; ctx.shadowBlur=35*pulse;
+    ctx.fillStyle='#00eeff';
+    ctx.fillText('GRAND PRIX',W/2,200);
     ctx.shadowBlur=0;
+
+    // sous-titre
+    ctx.font='bold 20px Arial'; ctx.fillStyle='rgba(200,225,255,0.85)';
+    ctx.fillText('Course de Voitures  ·  2 Joueurs',W/2,240);
+
+    // ligne déco
+    ctx.strokeStyle='rgba(0,200,255,0.3)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(W/2-200,258); ctx.lineTo(W/2+200,258); ctx.stroke();
+
+    // infos règles au centre
+    const rules=[
+        ['🏁','10 manches — 1 point par victoire'],
+        ['⚡','Double-appui = BOOST  (3 sec / manche)'],
+        ['▲','Zones vertes = accélérateur'],
+        ['⚠','Taches brunes = ralentisseur'],
+    ];
+    rules.forEach(([icon,txt],i)=>{
+        const ry=290+i*44;
+        ctx.fillStyle='rgba(255,255,255,0.04)'; ctx.beginPath(); ctx.roundRect(W/2-195,ry-16,390,36,8); ctx.fill();
+        ctx.fillStyle='rgba(200,230,255,0.75)'; ctx.font='14px Arial';
+        ctx.fillText(icon+'  '+txt, W/2, ry+7);
+    });
+
+    // bouton COMMENCER
+    const g=ctx.createLinearGradient(MBTN.x,MBTN.y,MBTN.x,MBTN.y+MBTN.h);
+    g.addColorStop(0,'#00eeff'); g.addColorStop(1,'#0055bb');
+    ctx.shadowColor='#00ccff'; ctx.shadowBlur=28*pulse;
+    ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(MBTN.x,MBTN.y,MBTN.w,MBTN.h,18); ctx.fill();
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(0,240,255,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(MBTN.x,MBTN.y,MBTN.w,MBTN.h,18); ctx.stroke();
     ctx.fillStyle='#000d1a'; ctx.font='bold 26px Arial Black';
     ctx.fillText('▶  COMMENCER',W/2,MBTN.y+40);
 
-    // online badge
-    const bw=180,bh=30,bx=W-bw-12,by=12;
-    ctx.fillStyle='rgba(0,20,40,0.82)';
-    ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,8); ctx.fill();
-    ctx.strokeStyle='rgba(0,200,100,0.6)'; ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,8); ctx.stroke();
-    // pulsing green dot
-    const dp=0.6+0.4*Math.sin(menuTime*4);
-    ctx.fillStyle=`rgba(0,255,100,${dp})`; ctx.beginPath(); ctx.arc(bx+16,by+15,5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(0,255,100,0.25)'; ctx.beginPath(); ctx.arc(bx+16,by+15,9,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(200,255,220,0.9)'; ctx.font='bold 12px Arial'; ctx.textAlign='left';
-    ctx.fillText('5 000 joueurs en ligne',bx+28,by+19);
+    // trophée animé entre le bouton et le footer
+    ctx.font='36px serif'; ctx.textBaseline='middle';
+    const tbob=Math.sin(menuTime*2)*5;
+    ctx.fillText('🏆',W/2,MBTN.y+MBTN.h+38+tbob);
+    ctx.textBaseline='alphabetic';
 
-    // small footer
-    ctx.font='11px Arial'; ctx.fillStyle='rgba(100,120,160,0.6)'; ctx.textAlign='center';
-    ctx.fillText('10 manches  ·  Boost double-appui  ·  Bonne course !',W/2,H-18);
+    // badge en ligne (haut droite)
+    const bw=190,bh=32,bx=W-bw-12,by=12;
+    ctx.fillStyle='rgba(0,20,40,0.85)'; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,9); ctx.fill();
+    ctx.strokeStyle='rgba(0,200,100,0.55)'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,9); ctx.stroke();
+    const dp=0.5+0.5*Math.abs(Math.sin(menuTime*3));
+    ctx.fillStyle=`rgba(0,255,100,${dp})`; ctx.beginPath(); ctx.arc(bx+16,by+16,5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(0,255,100,0.2)'; ctx.beginPath(); ctx.arc(bx+16,by+16,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(200,255,220,0.9)'; ctx.font='bold 12px Arial'; ctx.textAlign='left';
+    ctx.fillText('5 000 joueurs en ligne',bx+30,by+20);
+
+    // version (bas gauche)
+    ctx.font='10px Arial'; ctx.fillStyle='rgba(80,100,140,0.5)'; ctx.textAlign='left';
+    ctx.fillText('v2.0  ·  GRAND PRIX',14,H-10);
+
+    // footer centre
+    ctx.font='11px Arial'; ctx.fillStyle='rgba(100,120,160,0.55)'; ctx.textAlign='center';
+    ctx.fillText('Utilise les zones du circuit à ton avantage !',W/2,H-10);
 
     ctx.shadowBlur=0; ctx.restore();
 }
