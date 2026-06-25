@@ -20,29 +20,29 @@ canvas {
     border-radius: 8px;
     box-shadow: 0 0 40px rgba(80, 120, 255, 0.25);
     display: block;
+    max-width: 100vw;
+    max-height: 100vh;
 }
 </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="900" height="640"></canvas>
+<canvas id="gameCanvas" width="1100" height="740"></canvas>
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
 // ── Track geometry ─────────────────────────────────────────────────────────
-const CX = 450, CY = 305;
-const OUTER = { rx: 410, ry: 265 };
-const INNER = { rx: 238, ry: 148 };
+const CX = 550, CY = 370;
+const OUTER = { rx: 460, ry: 278 };
+const INNER = { rx: 270, ry: 160 };
 
-// Finish line at x = FIN_X, from FIN_Y1 to FIN_Y2 (bottom of track)
-const FIN_X  = 450;
-const FIN_Y1 = CY + INNER.ry + 6;   // ≈ 459
-const FIN_Y2 = CY + OUTER.ry - 6;   // ≈ 564
+const FIN_X  = 550;
+const FIN_Y1 = CY + INNER.ry + 6;   // 536
+const FIN_Y2 = CY + OUTER.ry - 6;   // 642
 
-// Car start positions (just AFTER the finish line → forces a full lap)
-const START_BLUE = { x: 478, y: FIN_Y1 + 32, angle: Math.PI / 2 };
-const START_RED  = { x: 478, y: FIN_Y1 + 72, angle: Math.PI / 2 };
+const START_BLUE = { x: 578, y: FIN_Y1 + 32, angle: Math.PI / 2 };
+const START_RED  = { x: 578, y: FIN_Y1 + 72, angle: Math.PI / 2 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function isOnTrack(x, y) {
@@ -135,39 +135,32 @@ class Car {
 
         const CW = 18, CH = 32;
 
-        // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.28)';
         ctx.beginPath();
         ctx.ellipse(3, 4, CW / 2, CH / 2.2, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Body
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.roundRect(-CW / 2, -CH / 2, CW, CH, 5);
         ctx.fill();
 
-        // Highlight stripe
         ctx.fillStyle = this.highlight;
         ctx.fillRect(-CW / 2 + 4, -CH / 2 + 1, CW - 8, CH - 2);
 
-        // Body re-outline
         ctx.fillStyle = this.color;
         ctx.fillRect(-CW / 2, -CH / 2 + 8, CW, CH - 16);
 
-        // Windshield front
         ctx.fillStyle = 'rgba(160,220,255,0.82)';
         ctx.beginPath();
         ctx.roundRect(-CW / 2 + 3, -CH / 2 + 4, CW - 6, 9, 2);
         ctx.fill();
 
-        // Windshield rear
         ctx.fillStyle = 'rgba(160,220,255,0.55)';
         ctx.beginPath();
         ctx.roundRect(-CW / 2 + 3, CH / 2 - 12, CW - 6, 8, 2);
         ctx.fill();
 
-        // Wheels (4)
         ctx.fillStyle = '#111';
         [[-CW / 2 - 4, -CH / 2 + 4],
          [ CW / 2 - 1, -CH / 2 + 4],
@@ -194,35 +187,198 @@ const redCar = new Car(
     'Rouge (WASD)'
 );
 
-// ── Game state ─────────────────────────────────────────────────────────────
-const TOTAL_ROUNDS = 10;
-let round       = 1;
-let scores      = { blue: 0, red: 0 };
-let gameState   = 'countdown';   // countdown | racing | roundEnd | gameOver
-let countdown   = 3;
-let cdTimer     = 0;
-let roundWinner = null;
-let reTimer     = 0;
-let goTimer     = 0;
-let goShowing   = false;
-let gameOverTimer = 0;
-let showRestart = false;
-let stars       = [];
-let trophyBob   = 0;
-let trophyScale = 0;
+// ── Grandstands (drawn once to offscreen canvas) ───────────────────────────
+const SEAT_COLORS = ['#cc2020','#1144cc','#119933','#ccaa00','#882299','#cc6611'];
+
+function spectatorColor(seed) {
+    const h = ((seed * 137) % 360 + 360) % 360;
+    const s = 50 + (seed * 71) % 35;
+    const l = 42 + (seed * 53) % 22;
+    return `hsl(${h|0},${s|0}%,${l|0}%)`;
+}
+
+// Horizontal stand: rows stacked top-to-bottom
+function buildStandH(c, x, y, w, h, rows) {
+    // Concrete base
+    const grad = c.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#585860');
+    grad.addColorStop(1, '#3a3a42');
+    c.fillStyle = grad;
+    c.fillRect(x, y, w, h);
+
+    const rowH = h / rows;
+
+    for (let r = 0; r < rows; r++) {
+        const ry = y + r * rowH;
+
+        // Step shading
+        c.fillStyle = r % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.05)';
+        c.fillRect(x, ry, w, rowH);
+
+        // Top highlight (step edge)
+        c.fillStyle = 'rgba(255,255,255,0.14)';
+        c.fillRect(x, ry, w, 2);
+
+        // Colored seat sections
+        const secW = 88;
+        for (let sx = 0; sx < w; sx += secW) {
+            const col = SEAT_COLORS[Math.floor(sx / secW) % SEAT_COLORS.length];
+            c.fillStyle = col;
+            c.globalAlpha = 0.52;
+            c.fillRect(x + sx + 1, ry + 4, Math.min(secW - 2, w - sx - 2), rowH - 8);
+            c.globalAlpha = 1;
+        }
+
+        // Spectators
+        const headY = ry + rowH * 0.52;
+        for (let sx = x + 6; sx < x + w - 6; sx += 11) {
+            const seed = (sx * 13 + r * 97) | 0;
+            c.fillStyle = spectatorColor(seed);
+            c.beginPath();
+            c.ellipse(sx, headY, 4, 4.5, 0, 0, Math.PI * 2);
+            c.fill();
+            c.fillStyle = 'rgba(255,255,255,0.3)';
+            c.beginPath();
+            c.ellipse(sx - 1.2, headY - 1.8, 1.8, 1.5, -0.5, 0, Math.PI * 2);
+            c.fill();
+        }
+    }
+
+    // Canopy roof strip
+    c.fillStyle = '#1e1e28';
+    c.fillRect(x, y, w, 10);
+    c.fillStyle = 'rgba(255,255,255,0.06)';
+    c.fillRect(x, y + 10, w, 3);
+
+    // Support pillars
+    for (let px = x + 80; px < x + w - 40; px += 120) {
+        c.fillStyle = '#555560';
+        c.fillRect(px - 3, y + 10, 6, h - 10);
+        c.fillStyle = '#888890';
+        c.fillRect(px - 1, y + 10, 2, h - 10);
+    }
+
+    // Border
+    c.strokeStyle = '#1a1a22';
+    c.lineWidth = 2;
+    c.strokeRect(x, y, w, h);
+}
+
+// Vertical stand: columns stacked left-to-right
+function buildStandV(c, x, y, w, h, cols) {
+    const grad = c.createLinearGradient(x, y, x + w, y);
+    grad.addColorStop(0, '#3a3a42');
+    grad.addColorStop(1, '#585860');
+    c.fillStyle = grad;
+    c.fillRect(x, y, w, h);
+
+    const colW = w / cols;
+
+    for (let col = 0; col < cols; col++) {
+        const cx2 = x + col * colW;
+
+        c.fillStyle = col % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.05)';
+        c.fillRect(cx2, y, colW, h);
+
+        // Left edge highlight
+        c.fillStyle = 'rgba(255,255,255,0.14)';
+        c.fillRect(cx2, y, 2, h);
+
+        // Colored seat sections
+        const secH = 88;
+        for (let sy = 0; sy < h; sy += secH) {
+            const sc = SEAT_COLORS[Math.floor(sy / secH) % SEAT_COLORS.length];
+            c.fillStyle = sc;
+            c.globalAlpha = 0.52;
+            c.fillRect(cx2 + 4, y + sy + 1, colW - 8, Math.min(secH - 2, h - sy - 2));
+            c.globalAlpha = 1;
+        }
+
+        // Spectators
+        const headX = cx2 + colW * 0.5;
+        for (let sy = y + 6; sy < y + h - 6; sy += 11) {
+            const seed = (sy * 13 + col * 97) | 0;
+            c.fillStyle = spectatorColor(seed);
+            c.beginPath();
+            c.ellipse(headX, sy, 4, 4.5, 0, 0, Math.PI * 2);
+            c.fill();
+            c.fillStyle = 'rgba(255,255,255,0.3)';
+            c.beginPath();
+            c.ellipse(headX - 1.2, sy - 1.8, 1.8, 1.5, -0.5, 0, Math.PI * 2);
+            c.fill();
+        }
+    }
+
+    // Canopy roof strip (on the track-facing side)
+    c.fillStyle = '#1e1e28';
+    c.fillRect(x, y, w, 10);
+    c.fillStyle = 'rgba(255,255,255,0.06)';
+    c.fillRect(x, y + 10, w, 3);
+
+    // Support pillars (horizontal)
+    for (let py = y + 80; py < y + h - 40; py += 120) {
+        c.fillStyle = '#555560';
+        c.fillRect(x, py - 3, w, 6);
+        c.fillStyle = '#888890';
+        c.fillRect(x, py - 1, w, 2);
+    }
+
+    c.strokeStyle = '#1a1a22';
+    c.lineWidth = 2;
+    c.strokeRect(x, y, w, h);
+}
+
+// Build the offscreen stand image once at startup
+const standCanvas = document.createElement('canvas');
+standCanvas.width = W;
+standCanvas.height = H;
+(function () {
+    const sc = standCanvas.getContext('2d');
+
+    // Outer grass backdrop for stand areas
+    sc.fillStyle = '#2d5420';
+    sc.fillRect(0, 0, W, H);
+
+    // Top stand  (y 4–88, x 92–1008)
+    buildStandH(sc, 92, 4, 916, 84, 4);
+    // Bottom stand (y 652–736, x 92–1008)
+    buildStandH(sc, 92, 652, 916, 84, 4);
+    // Left stand  (x 4–88, y 92–648)
+    buildStandV(sc, 4, 92, 84, 556, 4);
+    // Right stand (x 1012–1096, y 92–648)
+    buildStandV(sc, 1012, 92, 84, 556, 4);
+
+    // Tribune labels
+    sc.save();
+    sc.fillStyle = 'rgba(255,255,255,0.55)';
+    sc.font = 'bold 11px Arial';
+    sc.textAlign = 'center';
+    sc.fillText('TRIBUNES NORD', W / 2, 52);
+    sc.fillText('TRIBUNES SUD', W / 2, H - 32);
+    sc.save();
+    sc.translate(52, H / 2);
+    sc.rotate(-Math.PI / 2);
+    sc.fillText('TRIBUNES OUEST', 0, 0);
+    sc.restore();
+    sc.save();
+    sc.translate(W - 52, H / 2);
+    sc.rotate(Math.PI / 2);
+    sc.fillText('TRIBUNES EST', 0, 0);
+    sc.restore();
+    sc.restore();
+})();
 
 // ── Draw: track ────────────────────────────────────────────────────────────
 function drawTrack() {
-    // Sky / outer fill
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, W, H);
-
-    // Grass (outer)
-    const g1 = ctx.createRadialGradient(CX, CY, 80, CX, CY, 520);
+    // Outer grass
+    const g1 = ctx.createRadialGradient(CX, CY, 100, CX, CY, 660);
     g1.addColorStop(0, '#3c8235');
     g1.addColorStop(1, '#254f1e');
     ctx.fillStyle = g1;
     ctx.fillRect(0, 0, W, H);
+
+    // Blit pre-rendered grandstands
+    ctx.drawImage(standCanvas, 0, 0);
 
     // Road
     ctx.fillStyle = '#484848';
@@ -230,7 +386,7 @@ function drawTrack() {
     ctx.ellipse(CX, CY, OUTER.rx, OUTER.ry, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Road outer kerb
+    // Outer kerb
     ctx.strokeStyle = '#bb2222';
     ctx.lineWidth = 6;
     ctx.setLineDash([24, 24]);
@@ -239,10 +395,10 @@ function drawTrack() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Road surface texture (subtle)
+    // Road surface texture
     ctx.strokeStyle = 'rgba(255,255,255,0.04)';
     ctx.lineWidth = 1;
-    for (let t = 0; t < Math.PI * 2; t += 0.08) {
+    for (let t = 0; t < Math.PI * 2; t += 0.07) {
         const mx = CX + ((OUTER.rx + INNER.rx) / 2) * Math.sin(t);
         const my = CY - ((OUTER.ry + INNER.ry) / 2) * Math.cos(t);
         ctx.beginPath();
@@ -251,13 +407,23 @@ function drawTrack() {
     }
 
     // Inner grass
-    const g2 = ctx.createRadialGradient(CX, CY - 30, 20, CX, CY, 200);
+    const g2 = ctx.createRadialGradient(CX, CY - 30, 20, CX, CY, 280);
     g2.addColorStop(0, '#47943d');
     g2.addColorStop(1, '#2d5e25');
     ctx.fillStyle = g2;
     ctx.beginPath();
     ctx.ellipse(CX, CY, INNER.rx, INNER.ry, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Grand Prix logo in inner oval
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px Arial Black';
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillText('GRAND PRIX', CX, CY - 10);
+    ctx.font = '13px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fillText('★  COURSE DE VOITURES  ★', CX, CY + 14);
+    ctx.textAlign = 'left';
 
     // Inner kerb
     ctx.strokeStyle = '#bb2222';
@@ -279,7 +445,7 @@ function drawTrack() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // ── Finish / Start line (checkered) ─────────────────────────────────
+    // Checkered finish line
     const sq   = 10;
     const lx   = FIN_X - 15;
     const cols = 3;
@@ -291,7 +457,7 @@ function drawTrack() {
         }
     }
 
-    // "DÉPART / ARRIVÉE" label
+    // Finish line label
     ctx.save();
     ctx.translate(FIN_X + 18, (FIN_Y1 + FIN_Y2) / 2);
     ctx.rotate(-Math.PI / 2);
@@ -313,7 +479,6 @@ function roundedBox(x, y, w, h, r, fill, alpha = 0.7) {
 }
 
 function drawHUD() {
-    // Blue score
     roundedBox(8, 8, 195, 62, 10, '#001133');
     ctx.fillStyle = '#4488ff';
     ctx.font = 'bold 13px Arial';
@@ -323,7 +488,6 @@ function drawHUD() {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(scores.blue + ' pt' + (scores.blue !== 1 ? 's' : ''), 22, 60);
 
-    // Red score
     roundedBox(W - 203, 8, 195, 62, 10, '#1a0000');
     ctx.fillStyle = '#ff4444';
     ctx.font = 'bold 13px Arial';
@@ -335,7 +499,6 @@ function drawHUD() {
     ctx.fillText(scores.red + ' pt' + (scores.red !== 1 ? 's' : ''), W - 22, 60);
     ctx.textAlign = 'left';
 
-    // Round counter
     roundedBox(W / 2 - 90, 8, 180, 42, 10, '#0a0a22');
     ctx.fillStyle = '#ccccff';
     ctx.font = 'bold 18px Arial';
@@ -394,9 +557,9 @@ function spawnStars() {
 
 function updateAndDrawStars() {
     for (const s of stars) {
-        s.x   += s.vx;
-        s.y   += s.vy;
-        s.vy  += s.gravity;
+        s.x  += s.vx;
+        s.y  += s.vy;
+        s.vy += s.gravity;
         s.life -= s.decay;
         if (s.life <= 0) {
             const angle = Math.random() * Math.PI * 2;
@@ -416,7 +579,7 @@ function updateAndDrawStars() {
     ctx.globalAlpha = 1;
 }
 
-// ── Draw: trophy emoji ─────────────────────────────────────────────────────
+// ── Draw: trophy ───────────────────────────────────────────────────────────
 function drawTrophy(winner) {
     trophyScale = Math.min(trophyScale + 0.025, 1);
     trophyBob  += 0.04;
@@ -491,7 +654,23 @@ canvas.addEventListener('mousemove', e => {
                            my >= BTN.y && my <= BTN.y + BTN.h) ? 'pointer' : 'default';
 });
 
-// ── Game flow ──────────────────────────────────────────────────────────────
+// ── Game state ─────────────────────────────────────────────────────────────
+const TOTAL_ROUNDS = 10;
+let round       = 1;
+let scores      = { blue: 0, red: 0 };
+let gameState   = 'countdown';
+let countdown   = 3;
+let cdTimer     = 0;
+let roundWinner = null;
+let reTimer     = 0;
+let goTimer     = 0;
+let goShowing   = false;
+let gameOverTimer = 0;
+let showRestart = false;
+let stars       = [];
+let trophyBob   = 0;
+let trophyScale = 0;
+
 function startRound() {
     blueCar.reset();
     redCar.reset();
@@ -579,7 +758,6 @@ function loop(ts) {
     } else if (gameState === 'gameOver') {
         gameOverTimer += dt;
 
-        // Dark overlay
         ctx.fillStyle = 'rgba(0,0,0,0.78)';
         ctx.fillRect(0, 0, W, H);
 
