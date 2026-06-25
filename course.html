@@ -148,7 +148,7 @@ class Car {
         this.x=this.startPos.x; this.y=this.startPos.y;
         this.angle=this.startPos.angle; this.speed=0;
         this.prevX=this.x; this.prevY=this.y; this.finished=false;
-        this.boostTimer=0; this.boostFuel=5; this.trail=[];
+        this.boostTimer=0; this.boostFuel=2.5; this.trail=[];
     }
     update() {
         this.prevX=this.x; this.prevY=this.y;
@@ -522,7 +522,7 @@ function drawHUD(){
     ctx.fillText(scores.blue+' pt'+(scores.blue!==1?'s':''),22,60);
     // boost bar blue
     ctx.fillStyle='#223'; ctx.fillRect(18,66,160,7);
-    const bf=blueCar.boostFuel/5;
+    const bf=blueCar.boostFuel/2.5;
     const bg=ctx.createLinearGradient(18,0,178,0);
     bg.addColorStop(0,'#ff0'); bg.addColorStop(0.5,'#0f0'); bg.addColorStop(1,'#0cf');
     ctx.fillStyle=bg; ctx.fillRect(18,66,160*bf,7);
@@ -536,7 +536,7 @@ function drawHUD(){
     ctx.fillText(scores.red+' pt'+(scores.red!==1?'s':''),W-22,60);
     // boost bar red
     ctx.fillStyle='#322'; ctx.fillRect(W-178,66,160,7);
-    const rf=redCar.boostFuel/5;
+    const rf=redCar.boostFuel/2.5;
     const rg=ctx.createLinearGradient(W-178,0,W-18,0);
     rg.addColorStop(0,'#ff0'); rg.addColorStop(0.5,'#0f0'); rg.addColorStop(1,'#0cf');
     ctx.fillStyle=rg; ctx.fillRect(W-178,66,160*rf,7);
