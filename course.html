@@ -748,6 +748,14 @@ function drawHUD(){
     ctx.font='11px Arial'; ctx.fillStyle='rgba(180,200,255,0.7)';
     ctx.fillText(currentCircuit.name,W/2,46);
     ctx.textAlign='left';
+
+    // Bouton retour salon
+    rBox(BACK_BTN.x,BACK_BTN.y,BACK_BTN.w,BACK_BTN.h,8,'#111133',0.82);
+    ctx.strokeStyle='rgba(100,150,255,0.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(BACK_BTN.x,BACK_BTN.y,BACK_BTN.w,BACK_BTN.h,8); ctx.stroke();
+    ctx.fillStyle='rgba(180,210,255,0.9)'; ctx.font='bold 12px Arial'; ctx.textAlign='center';
+    ctx.fillText('⬅ Salon',BACK_BTN.x+BACK_BTN.w/2,BACK_BTN.y+BACK_BTN.h/2+4);
+    ctx.textAlign='left';
 }
 
 // ════════════════════════════════════════════════════════════
@@ -826,6 +834,7 @@ function drawRestartBtn(){
     ctx.textAlign='center'; ctx.fillText('▶  Recommencer',W/2,BTN.y+34); ctx.textAlign='left';
 }
 
+const BACK_BTN={x:W/2-50,y:H-42,w:100,h:30};
 const PC_BTNS=[
     {label:'2 Joueurs',count:2,x:W/2-195,y:480,w:120,h:44},
     {label:'3 Joueurs',count:3,x:W/2-55, y:480,w:120,h:44},
@@ -850,6 +859,11 @@ canvas.addEventListener('click',e=>{
     if(gameState==='gameOver'&&showRestart){
         if(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h) restartGame();
     }
+    if(['countdown','racing','roundEnd'].includes(gameState)){
+        if(mx>=BACK_BTN.x&&mx<=BACK_BTN.x+BACK_BTN.w&&my>=BACK_BTN.y&&my<=BACK_BTN.y+BACK_BTN.h){
+            gameState='menu'; scores={blue:0,red:0,bot1:0,bot2:0}; round=1;
+        }
+    }
     if(gameState==='menu'){
         if(mx>=MBTN.x&&mx<=MBTN.x+MBTN.w&&my>=MBTN.y&&my<=MBTN.y+MBTN.h){
             gameState='countdown'; menuTime=0; startRound();
@@ -870,6 +884,9 @@ canvas.addEventListener('mousemove',e=>{
         const onPC=PC_BTNS.some(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
         const onDiff=DIFF_BTNS.some(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
         canvas.style.cursor=(onStart||onPC||onDiff)?'pointer':'default';
+    } else if(['countdown','racing','roundEnd'].includes(gameState)){
+        const onBack=mx>=BACK_BTN.x&&mx<=BACK_BTN.x+BACK_BTN.w&&my>=BACK_BTN.y&&my<=BACK_BTN.y+BACK_BTN.h;
+        canvas.style.cursor=onBack?'pointer':'default';
     } else if(gameState==='gameOver'&&showRestart){
         canvas.style.cursor=(mx>=BTN.x&&mx<=BTN.x+BTN.w&&my>=BTN.y&&my<=BTN.y+BTN.h)?'pointer':'default';
     } else { canvas.style.cursor='default'; }
