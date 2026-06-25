@@ -40,9 +40,9 @@ const FIN_X  = 450;
 const FIN_Y1 = CY + INNER.ry + 6;   // ≈ 459
 const FIN_Y2 = CY + OUTER.ry - 6;   // ≈ 564
 
-// Car start positions (just left of finish, bottom of track, pointing east)
-const START_BLUE = { x: 410, y: FIN_Y1 + 32, angle: Math.PI / 2 };
-const START_RED  = { x: 410, y: FIN_Y1 + 72, angle: Math.PI / 2 };
+// Car start positions (just AFTER the finish line → forces a full lap)
+const START_BLUE = { x: 478, y: FIN_Y1 + 32, angle: Math.PI / 2 };
+const START_RED  = { x: 478, y: FIN_Y1 + 72, angle: Math.PI / 2 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function isOnTrack(x, y) {
@@ -86,7 +86,7 @@ class Car {
         const MAX   = 5.2;
         const ACCEL = 0.22;
         const FRIC  = 0.91;
-        const TURN  = 0.054;
+        const TURN  = 0.068;
 
         if (keys[this.controls.up])   this.speed += ACCEL;
         else if (keys[this.controls.down]) this.speed -= ACCEL * 0.85;
@@ -94,10 +94,11 @@ class Car {
 
         this.speed = Math.max(-MAX * 0.45, Math.min(MAX, this.speed));
 
-        if (Math.abs(this.speed) > 0.15) {
+        if (Math.abs(this.speed) > 0.08) {
             const dir = Math.sign(this.speed);
-            if (keys[this.controls.left])  this.angle -= TURN * dir;
-            if (keys[this.controls.right]) this.angle += TURN * dir;
+            const tf  = 0.45 + 0.55 * Math.min(Math.abs(this.speed) / MAX, 1.0);
+            if (keys[this.controls.left])  this.angle -= TURN * dir * tf;
+            if (keys[this.controls.right]) this.angle += TURN * dir * tf;
         }
 
         const nx = this.x + Math.sin(this.angle) * this.speed;
