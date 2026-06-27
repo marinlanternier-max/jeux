@@ -1109,10 +1109,17 @@ function loop(ts){
         else if(b1F){scores.bot1++;lapFlash={who:'bot1',color:'#ffcc22',name:'🤖 Bot 1'};lapFlashTimer=1.2;}
         else if(b2F){scores.bot2++;lapFlash={who:'bot2',color:'#22cc66',name:'🤖 Bot 2'};lapFlashTimer=1.2;}
 
-        // Check if someone reached winning score
+        // Check if someone reached winning score or new lap started
         const topScore=Math.max(scores.blue,scores.red,scores.bot1,scores.bot2);
         if(topScore>=WINNING_SCORE){gameState='gameOver';gameOverTimer=0;showRestart=false;spawnStars();}
-        else if(bF||rF||b1F||b2F){round++;startRound(false);}
+        else if(bF||rF||b1F||b2F){
+            round++;
+            // Just reset lap detection and zones — no repositioning
+            blueCar.finished=false; redCar.finished=false;
+            bot1.finished=false; bot2.finished=false;
+            resetZones();
+            currentCircuit=circuit1;
+        }
 
         drawZones();
         blueCar.drawTrail(); redCar.drawTrail();
