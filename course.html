@@ -742,11 +742,9 @@ function drawHUD(){
         ctx.fillText('🤖 Bot 2  —  '+scores.bot2+' pt'+(scores.bot2!==1?'s':''),18,149);
     }
 
-    rBox(W/2-110,8,220,52,10,'#0a0a22');
+    rBox(W/2-110,8,220,36,10,'#0a0a22');
     ctx.fillStyle='#ccccff'; ctx.font='bold 16px Arial'; ctx.textAlign='center';
     ctx.fillText('Tour '+round+' — Objectif '+WINNING_SCORE+' pts',W/2,28);
-    ctx.font='11px Arial'; ctx.fillStyle='rgba(180,200,255,0.7)';
-    ctx.fillText(currentCircuit.name,W/2,46);
     ctx.textAlign='left';
 
     // Bouton retour salon
@@ -866,7 +864,7 @@ canvas.addEventListener('click',e=>{
     }
     if(gameState==='menu'){
         if(mx>=MBTN.x&&mx<=MBTN.x+MBTN.w&&my>=MBTN.y&&my<=MBTN.y+MBTN.h){
-            gameState='countdown'; menuTime=0; startRound();
+            gameState='countdown'; menuTime=0; startRound(true);
         }
         for(const b of PC_BTNS){
             if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h) playerCount=b.count;
@@ -1061,21 +1059,21 @@ function nearestWpAhead(car){
     return best;
 }
 
-function startRound(){
-    currentCircuit = circuits[(round-1)%2];
+function startRound(withCountdown=false){
+    currentCircuit = circuit1;
     blueCar.setStart(currentCircuit.startBlue); blueCar.reset();
     redCar.setStart(currentCircuit.startRed);   redCar.reset();
     if(playerCount>=3){ bot1.setStart(currentCircuit.startBot1); bot1.reset(); bot1.wpIdx=nearestWpAhead(bot1); }
     if(playerCount>=4){ bot2.setStart(currentCircuit.startBot2); bot2.reset(); bot2.wpIdx=nearestWpAhead(bot2); }
     resetZones();
-    if(gameState!=='menu') gameState='countdown';
-    countdown=3; cdTimer=0; goShowing=false; goTimer=0;
+    if(withCountdown){ gameState='countdown'; countdown=3; cdTimer=0; goShowing=false; goTimer=0; }
+    else if(gameState!=='menu') gameState='racing';
 }
 function restartGame(){
     scores={blue:0,red:0,bot1:0,bot2:0}; round=1; showRestart=false;
     lapFlash=null; lapFlashTimer=0;
     trophyScale=0; trophyBob=0; stars=[]; canvas.style.cursor='default';
-    gameState='countdown'; startRound();
+    gameState='countdown'; startRound(true);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1114,7 +1112,7 @@ function loop(ts){
         // Check if someone reached winning score
         const topScore=Math.max(scores.blue,scores.red,scores.bot1,scores.bot2);
         if(topScore>=WINNING_SCORE){gameState='gameOver';gameOverTimer=0;showRestart=false;spawnStars();}
-        else if(bF||rF||b1F||b2F){round++;startRound();}
+        else if(bF||rF||b1F||b2F){round++;startRound(false);}
 
         drawZones();
         blueCar.drawTrail(); redCar.drawTrail();
